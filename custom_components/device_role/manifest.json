@@ -1,0 +1,9 @@
+{
+  "domain": "device_role",
+  "name": "Device Role",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "",
+  "iot_class": "local_push",
+  "version": "0.1.0"
+}
