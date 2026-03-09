@@ -1,8 +1,9 @@
 # ABOUTME: Tests for device_role integration setup and teardown.
-# ABOUTME: Verifies config entry loading and unloading works correctly.
+# ABOUTME: Verifies config entry loading, unloading, and shutdown accumulator save.
 
 import pytest
 
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -27,3 +28,44 @@ async def test_setup_and_unload_entry(
     await hass.async_block_till_done()
 
     assert mock_config_entry.entry_id not in hass.data[DOMAIN]
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_shared_store_manager_created(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test that the shared store manager is created on first entry setup."""
+    mock_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert "store_manager" in hass.data[DOMAIN]
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_shutdown_saves_accumulators(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+) -> None:
+    """Test that HA shutdown triggers accumulator save."""
+    mock_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    store_manager = hass.data[DOMAIN]["store_manager"]
+    save_called = False
+    original_save = store_manager.async_save_now
+
+    async def track_save():
+        nonlocal save_called
+        save_called = True
+        await original_save()
+
+    store_manager.async_save_now = track_save
+
+    # Fire shutdown event
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    await hass.async_block_till_done()
+
+    assert save_called

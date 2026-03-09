@@ -1,9 +1,30 @@
 # ABOUTME: Binary sensor platform for the device_role integration.
 # ABOUTME: Creates role binary sensor entities that mirror physical binary sensors.
 
+import logging
+
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_state_change_event
+
+from .const import (
+    CONF_ACTIVE,
+    CONF_DEVICE_CLASS,
+    CONF_DOMAIN,
+    CONF_ENTITY_MAPPINGS,
+    CONF_ROLE_NAME,
+    CONF_SLOT,
+    CONF_SOURCE_ENTITY_ID,
+    DOMAIN,
+)
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -12,3 +33,108 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up device role binary sensor entities from a config entry."""
+    role_name = entry.data[CONF_ROLE_NAME]
+    active = entry.data.get(CONF_ACTIVE, True)
+
+    entities = []
+    for mapping in entry.data.get(CONF_ENTITY_MAPPINGS, []):
+        if mapping[CONF_DOMAIN] != "binary_sensor":
+            continue
+
+        entities.append(
+            RoleBinarySensor(
+                entry=entry,
+                role_name=role_name,
+                slot=mapping[CONF_SLOT],
+                source_entity_id=mapping[CONF_SOURCE_ENTITY_ID],
+                device_class_str=mapping.get(CONF_DEVICE_CLASS),
+                active=active,
+            )
+        )
+
+    async_add_entities(entities)
+
+
+class RoleBinarySensor(BinarySensorEntity):
+    """A role binary sensor that mirrors a physical binary sensor."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = False
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        role_name: str,
+        slot: str,
+        source_entity_id: str,
+        device_class_str: str | None,
+        active: bool,
+    ) -> None:
+        """Initialize the role binary sensor."""
+        self._entry = entry
+        self._role_name = role_name
+        self._slot = slot
+        self._source_entity_id = source_entity_id
+        self._active = active
+        self._unsub_listener = None
+
+        self._attr_unique_id = f"{entry.entry_id}_{slot}"
+        self._attr_name = f"{role_name} {slot}".replace("_", " ").title()
+
+        if device_class_str:
+            try:
+                self._attr_device_class = BinarySensorDeviceClass(device_class_str)
+            except ValueError:
+                self._attr_device_class = None
+
+    @property
+    def device_info(self):
+        """Return device info to group role entities under a role device."""
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+            "name": self._role_name,
+            "manufacturer": "Device Role",
+        }
+
+    @property
+    def available(self) -> bool:
+        """Return True if the role is active."""
+        return self._active
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to source entity state changes."""
+        if not self._active:
+            return
+
+        self._update_from_source()
+
+        self._unsub_listener = async_track_state_change_event(
+            self.hass, [self._source_entity_id], self._handle_source_change
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up the state change listener."""
+        if self._unsub_listener:
+            self._unsub_listener()
+            self._unsub_listener = None
+
+    @callback
+    def _handle_source_change(
+        self, event: Event[EventStateChangedData]
+    ) -> None:
+        """Handle source entity state changes."""
+        self._update_from_source()
+        self.async_write_ha_state()
+
+    @callback
+    def _update_from_source(self) -> None:
+        """Update role binary sensor from the source entity's current state."""
+        source_state = self.hass.states.get(self._source_entity_id)
+        if source_state is None or source_state.state in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+        ):
+            self._attr_is_on = None
+            return
+
+        self._attr_is_on = source_state.state == STATE_ON
