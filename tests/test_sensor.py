@@ -170,6 +170,40 @@ async def test_inactive_role_sensor_unavailable(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
+async def test_sensor_resolves_entity_id_from_unique_id(hass: HomeAssistant) -> None:
+    """Test that mirroring works even if the source entity_id was renamed."""
+    device, entity_entry = _setup_physical_device(hass)
+
+    # Record the original entity_id in the role config
+    original_entity_id = entity_entry.entity_id
+
+    # Rename the entity in the registry (simulates user rename)
+    entity_reg = er.async_get(hass)
+    entity_reg.async_update_entity(
+        original_entity_id, new_entity_id="sensor.renamed_temperature"
+    )
+
+    # Set state on the new entity_id
+    hass.states.async_set(
+        "sensor.renamed_temperature", "19.5",
+        {"unit_of_measurement": "°C", "device_class": "temperature"},
+    )
+
+    # Role config still has the OLD entity_id, but has the correct unique_id
+    entry = _make_role_entry(
+        device.id, entity_entry.unique_id, original_entity_id
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.balcony_sensor_temperature")
+    assert role_state is not None
+    assert role_state.state == "19.5"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
 async def test_role_creates_device(hass: HomeAssistant) -> None:
     """Test that a role creates its own logical device in the device registry."""
     device, entity_entry = _setup_physical_device(hass)

@@ -210,9 +210,11 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize the options flow."""
         self._config_entry = config_entry
+        self._new_device_id: str | None = None
 
     async def async_step_init(self, user_input=None):
-        """Show the options form with active toggle and entity selection."""
+        """Show the options form with active toggle, entity selection, and device change."""
+        errors: dict[str, str] = {}
         device_id = self._config_entry.data.get(CONF_DEVICE_ID)
         entity_reg = er.async_get(self.hass)
 
@@ -237,55 +239,80 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
         ]
 
         if user_input is not None:
+            # Route to device change flow if requested
+            if user_input.get("change_device", False):
+                return await self.async_step_select_device()
+
             new_active = user_input.get(CONF_ACTIVE, True)
+            new_mappings = current_mappings
 
             # Only update mappings if the entities field was shown
             if eligible and "entities" in user_input:
                 selected_entity_ids = user_input["entities"]
 
-                # Build new mappings preserving existing slot names
-                existing_by_uid = {
-                    m[CONF_SOURCE_UNIQUE_ID]: m for m in current_mappings
+                # Check for conflicts with other active roles
+                claimed = _get_claimed_source_unique_ids(
+                    self.hass.config_entries.async_entries(DOMAIN)
+                )
+                # Exclude entities already owned by this role
+                own_uids = {
+                    m[CONF_SOURCE_UNIQUE_ID] for m in current_mappings
                 }
+                claimed -= own_uids
 
-                new_mappings = []
-                for entry in device_entities:
-                    if entry.entity_id not in selected_entity_ids:
-                        continue
-                    if entry.domain not in SUPPORTED_DOMAINS:
-                        continue
+                selected_entries = [
+                    e for e in device_entities
+                    if e.entity_id in selected_entity_ids
+                ]
+                conflict = any(
+                    e.unique_id in claimed for e in selected_entries
+                )
 
-                    if entry.unique_id in existing_by_uid:
-                        # Preserve existing mapping (keeps slot name stable)
-                        new_mappings.append(existing_by_uid[entry.unique_id])
-                    else:
-                        # New entity — generate a slot name
-                        new_mappings.append(
-                        {
-                            CONF_SLOT: _build_slot_name(
-                                entry.domain, entry.original_device_class
-                            ),
-                            CONF_SOURCE_UNIQUE_ID: entry.unique_id,
-                            CONF_SOURCE_ENTITY_ID: entry.entity_id,
-                            CONF_DOMAIN: entry.domain,
-                            CONF_DEVICE_CLASS: entry.original_device_class,
-                        }
-                    )
+                if conflict:
+                    errors["base"] = "entity_claimed"
+                else:
+                    # Build new mappings preserving existing slot names
+                    existing_by_uid = {
+                        m[CONF_SOURCE_UNIQUE_ID]: m for m in current_mappings
+                    }
 
-                new_mappings = _deduplicate_slots(new_mappings)
+                    new_mappings = []
+                    for entry in device_entities:
+                        if entry.entity_id not in selected_entity_ids:
+                            continue
+                        if entry.domain not in SUPPORTED_DOMAINS:
+                            continue
+
+                        if entry.unique_id in existing_by_uid:
+                            new_mappings.append(existing_by_uid[entry.unique_id])
+                        else:
+                            new_mappings.append(
+                            {
+                                CONF_SLOT: _build_slot_name(
+                                    entry.domain, entry.original_device_class
+                                ),
+                                CONF_SOURCE_UNIQUE_ID: entry.unique_id,
+                                CONF_SOURCE_ENTITY_ID: entry.entity_id,
+                                CONF_DOMAIN: entry.domain,
+                                CONF_DEVICE_CLASS: entry.original_device_class,
+                            }
+                        )
+
+                    new_mappings = _deduplicate_slots(new_mappings)
+
+            if errors:
+                # Fall through to re-show the form with errors
+                pass
             else:
-                # No entity field shown — keep existing mappings
-                new_mappings = current_mappings
+                new_data = dict(self._config_entry.data)
+                new_data[CONF_ACTIVE] = new_active
+                new_data[CONF_ENTITY_MAPPINGS] = new_mappings
 
-            new_data = dict(self._config_entry.data)
-            new_data[CONF_ACTIVE] = new_active
-            new_data[CONF_ENTITY_MAPPINGS] = new_mappings
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, data=new_data
+                )
 
-            self.hass.config_entries.async_update_entry(
-                self._config_entry, data=new_data
-            )
-
-            return self.async_create_entry(title="", data={})
+                return self.async_create_entry(title="", data={})
 
         current_active = self._config_entry.data.get(CONF_ACTIVE, True)
 
@@ -298,7 +325,123 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
                 "entities", default=current_entity_ids
             )] = cv.multi_select(eligible)
 
+        schema_fields[vol.Optional("change_device", default=False)] = bool
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(schema_fields),
+            errors=errors,
+        )
+
+    async def async_step_select_device(self, user_input=None):
+        """Select a new physical device for the role."""
+        device_reg = dr.async_get(self.hass)
+        devices = {
+            device.id: device.name_by_user or device.name or device.id
+            for device in device_reg.devices.values()
+            if device.name or device.name_by_user
+        }
+
+        if user_input is not None:
+            self._new_device_id = user_input[CONF_DEVICE_ID]
+            return await self.async_step_select_entities()
+
+        return self.async_show_form(
+            step_id="select_device",
+            data_schema=vol.Schema(
+                {vol.Required(CONF_DEVICE_ID): vol.In(devices)}
+            ),
+        )
+
+    async def async_step_select_entities(self, user_input=None):
+        """Select entities from the new device to mirror."""
+        entity_reg = er.async_get(self.hass)
+        device_entities = er.async_entries_for_device(
+            entity_reg, self._new_device_id, include_disabled_entities=False
+        )
+        eligible = {
+            entry.entity_id: (
+                f"{entry.original_name or entry.entity_id}"
+                f" ({entry.domain}"
+                f"{', ' + entry.original_device_class if entry.original_device_class else ''})"
+            )
+            for entry in device_entities
+            if entry.domain in SUPPORTED_DOMAINS
+        }
+
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected_entity_ids = user_input.get("entities", [])
+
+            # Check for conflicts with other active roles
+            claimed = _get_claimed_source_unique_ids(
+                self.hass.config_entries.async_entries(DOMAIN)
+            )
+            current_mappings = self._config_entry.data.get(
+                CONF_ENTITY_MAPPINGS, []
+            )
+            own_uids = {
+                m[CONF_SOURCE_UNIQUE_ID] for m in current_mappings
+            }
+            claimed -= own_uids
+
+            selected_entries = [
+                entry for entry in device_entities
+                if entry.entity_id in selected_entity_ids
+            ]
+            conflict = any(
+                entry.unique_id in claimed for entry in selected_entries
+            )
+
+            if conflict:
+                errors["base"] = "entity_claimed"
+            else:
+                # Commit energy accumulators before reassignment so the
+                # old device's session delta is preserved in historical_sum
+                # and a fresh session starts on the new device.
+                store_manager = self.hass.data.get(DOMAIN, {}).get(
+                    "store_manager"
+                )
+                if store_manager:
+                    for mapping in current_mappings:
+                        if mapping.get(CONF_DEVICE_CLASS) == "energy":
+                            acc_key = (
+                                f"{self._config_entry.entry_id}"
+                                f"_{mapping[CONF_SLOT]}"
+                            )
+                            acc = store_manager.get_or_create(acc_key)
+                            acc.commit_session()
+
+                mappings = []
+                for entry in selected_entries:
+                    mappings.append(
+                        {
+                            CONF_SLOT: _build_slot_name(
+                                entry.domain, entry.original_device_class
+                            ),
+                            CONF_SOURCE_UNIQUE_ID: entry.unique_id,
+                            CONF_SOURCE_ENTITY_ID: entry.entity_id,
+                            CONF_DOMAIN: entry.domain,
+                            CONF_DEVICE_CLASS: entry.original_device_class,
+                        }
+                    )
+                mappings = _deduplicate_slots(mappings)
+
+                new_data = dict(self._config_entry.data)
+                new_data[CONF_DEVICE_ID] = self._new_device_id
+                new_data[CONF_ENTITY_MAPPINGS] = mappings
+
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, data=new_data
+                )
+
+                return self.async_create_entry(title="", data={})
+
+        return self.async_show_form(
+            step_id="select_entities",
+            data_schema=vol.Schema(
+                {vol.Required("entities"): cv.multi_select(eligible)}
+            ),
+            errors=errors,
         )

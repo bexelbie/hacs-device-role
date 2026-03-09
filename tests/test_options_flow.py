@@ -80,7 +80,7 @@ def _make_role_entry(
 
 @pytest.mark.usefixtures("enable_custom_integrations")
 async def test_options_flow_toggle_active(hass: HomeAssistant) -> None:
-    """Test toggling the active state via options flow."""
+    """Test toggling the active state via options flow reloads the entry."""
     device, entity_entry = _setup_device_with_sensor(hass)
     hass.states.async_set(entity_entry.entity_id, "22.0")
 
@@ -90,7 +90,7 @@ async def test_options_flow_toggle_active(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    # Sensor should be active
+    # Sensor should be active and mirroring
     role_state = hass.states.get("sensor.balcony_sensor_temperature")
     assert role_state is not None
     assert role_state.state == "22.0"
@@ -105,9 +105,13 @@ async def test_options_flow_toggle_active(hass: HomeAssistant) -> None:
         {CONF_ACTIVE: False},
     )
     assert result["type"] == "create_entry"
+    await hass.async_block_till_done()
 
-    # After options update, the active flag should be False
+    # After options update and reload, sensor should be unavailable
     assert entry.data[CONF_ACTIVE] is False
+    role_state = hass.states.get("sensor.balcony_sensor_temperature")
+    assert role_state is not None
+    assert role_state.state == STATE_UNAVAILABLE
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -321,6 +325,132 @@ async def test_options_flow_preserves_existing_slots(hass: HomeAssistant) -> Non
     mappings = entry.data[CONF_ENTITY_MAPPINGS]
     temp_mapping = next(m for m in mappings if m[CONF_SOURCE_UNIQUE_ID] == temp.unique_id)
     assert temp_mapping[CONF_SLOT] == "sensor_temperature"  # Unchanged
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_options_flow_rejects_claimed_entities(
+    hass: HomeAssistant,
+) -> None:
+    """Test that options flow rejects entities claimed by another active role."""
+    device, temp, humidity, switch = _setup_device_with_multiple_entities(hass)
+    hass.states.async_set(temp.entity_id, "22.0")
+    hass.states.async_set(humidity.entity_id, "55.0")
+
+    # Role A owns temperature
+    entry_a = MockConfigEntry(
+        domain=DOMAIN,
+        title="Balcony",
+        data={
+            CONF_ROLE_NAME: "Balcony",
+            CONF_DEVICE_ID: device.id,
+            CONF_ACTIVE: True,
+            CONF_ENTITY_MAPPINGS: [
+                {
+                    CONF_SLOT: "sensor_temperature",
+                    CONF_SOURCE_UNIQUE_ID: temp.unique_id,
+                    CONF_SOURCE_ENTITY_ID: temp.entity_id,
+                    CONF_DOMAIN: "sensor",
+                    CONF_DEVICE_CLASS: "temperature",
+                },
+            ],
+        },
+    )
+    entry_a.add_to_hass(hass)
+
+    # Role B owns humidity, tries to also claim temperature
+    entry_b = MockConfigEntry(
+        domain=DOMAIN,
+        title="Kitchen",
+        data={
+            CONF_ROLE_NAME: "Kitchen",
+            CONF_DEVICE_ID: device.id,
+            CONF_ACTIVE: True,
+            CONF_ENTITY_MAPPINGS: [
+                {
+                    CONF_SLOT: "sensor_humidity",
+                    CONF_SOURCE_UNIQUE_ID: humidity.unique_id,
+                    CONF_SOURCE_ENTITY_ID: humidity.entity_id,
+                    CONF_DOMAIN: "sensor",
+                    CONF_DEVICE_CLASS: "humidity",
+                },
+            ],
+        },
+    )
+    entry_b.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry_a.entry_id)
+    await hass.async_block_till_done()
+
+    # entry_b is auto-loaded when the domain loads for entry_a
+
+    # Role B tries to add temperature (claimed by active Role A) via options
+    result = await hass.config_entries.options.async_init(entry_b.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_ACTIVE: True,
+            "entities": [humidity.entity_id, temp.entity_id],
+        },
+    )
+
+    # Should show an error, not create the entry
+    assert result["type"] == "form"
+    assert result["errors"]["base"] == "entity_claimed"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_options_flow_reassign_device(hass: HomeAssistant) -> None:
+    """Test reassigning a role to a different physical device."""
+    # Create two physical devices
+    device_a, temp_a = _setup_device_with_sensor(
+        hass, name="Plug A", identifiers={("test", "plug_a")}
+    )
+    device_b, temp_b = _setup_device_with_sensor(
+        hass, name="Plug B", identifiers={("test", "plug_b")}
+    )
+    hass.states.async_set(temp_a.entity_id, "22.0")
+    hass.states.async_set(temp_b.entity_id, "18.0")
+
+    # Role starts on device A
+    entry = _make_role_entry(device_a.id, temp_a.unique_id, temp_a.entity_id)
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.balcony_sensor_temperature")
+    assert role_state.state == "22.0"
+
+    # Open options and request device change
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["step_id"] == "init"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTIVE: True, "change_device": True},
+    )
+    assert result["step_id"] == "select_device"
+
+    # Select device B
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_DEVICE_ID: device_b.id},
+    )
+    assert result["step_id"] == "select_entities"
+
+    # Select temperature from device B
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"entities": [temp_b.entity_id]},
+    )
+    assert result["type"] == "create_entry"
+    await hass.async_block_till_done()
+
+    # Role should now mirror device B
+    assert entry.data[CONF_DEVICE_ID] == device_b.id
+    role_state = hass.states.get("sensor.balcony_sensor_temperature")
+    assert role_state is not None
+    assert role_state.state == "18.0"
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")

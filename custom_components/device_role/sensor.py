@@ -25,11 +25,11 @@ from .const import (
     CONF_SLOT,
     CONF_SOURCE_ENTITY_ID,
     DOMAIN,
-    ENERGY_INTERNAL_UNIT,
     STORAGE_KEY,
     STORAGE_SAVE_INTERVAL,
     STORAGE_VERSION,
 )
+from .helpers import resolve_source_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ async def async_setup_entry(
             continue
 
         device_class_str = mapping.get(CONF_DEVICE_CLASS)
+        source_entity_id = resolve_source_entity_id(hass, mapping)
 
         if device_class_str and device_class_str == SensorDeviceClass.ENERGY:
             # Energy sensor with accumulator
@@ -93,7 +94,7 @@ async def async_setup_entry(
                     entry=entry,
                     role_name=role_name,
                     slot=mapping[CONF_SLOT],
-                    source_entity_id=mapping[CONF_SOURCE_ENTITY_ID],
+                    source_entity_id=source_entity_id,
                     active=active,
                     accumulator=accumulator,
                     store_manager=store_manager,
@@ -105,7 +106,7 @@ async def async_setup_entry(
                     entry=entry,
                     role_name=role_name,
                     slot=mapping[CONF_SLOT],
-                    source_entity_id=mapping[CONF_SOURCE_ENTITY_ID],
+                    source_entity_id=source_entity_id,
                     device_class_str=device_class_str,
                     active=active,
                 )
@@ -314,22 +315,38 @@ class RoleEnergySensor(SensorEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to source entity state changes and start session."""
+        """Subscribe to source entity state changes and resume or start session."""
         if not self._active:
             return
 
-        # Try to start a session from the current source reading
-        self._try_start_session()
+        if self._accumulator.session_active:
+            # Session was restored from persistent storage — process current state
+            self._session_initialized = True
+            self._update_from_current_source()
+        else:
+            # No active session — try to start one from the current source reading
+            self._try_start_session()
 
         self._unsub_listener = async_track_state_change_event(
             self.hass, [self._source_entity_id], self._handle_source_change
         )
 
     async def async_will_remove_from_hass(self) -> None:
-        """Clean up listener and save accumulator state."""
+        """Save accumulator state on removal; commit when deactivated or mapping removed."""
         if self._unsub_listener:
             self._unsub_listener()
             self._unsub_listener = None
+        # Commit the session if the role is being deactivated OR if this
+        # entity's slot was removed from the mappings (active role, entity
+        # dropped via options flow). On restart/reload where the slot is
+        # still mapped, preserve the active session so downtime energy is
+        # attributed correctly.
+        slot_still_mapped = any(
+            m.get(CONF_SLOT) == self._slot
+            for m in self._entry.data.get(CONF_ENTITY_MAPPINGS, [])
+        )
+        if not self._entry.data.get(CONF_ACTIVE, True) or not slot_still_mapped:
+            self._accumulator.commit_session()
         self._store_manager.schedule_save()
 
     @callback
@@ -356,9 +373,10 @@ class RoleEnergySensor(SensorEntity):
             return
 
         unit = _ENERGY_UNIT_MAP.get(
-            source_state.attributes.get("unit_of_measurement", "kWh"),
-            ENERGY_INTERNAL_UNIT,
+            source_state.attributes.get("unit_of_measurement"),
         )
+        if unit is None:
+            return
         self._accumulator.update(reading, unit=unit)
         self._attr_native_value = self._accumulator.role_value
         self._store_manager.schedule_save()
@@ -379,8 +397,31 @@ class RoleEnergySensor(SensorEntity):
             return
 
         unit = _ENERGY_UNIT_MAP.get(
-            source_state.attributes.get("unit_of_measurement", "kWh"),
-            ENERGY_INTERNAL_UNIT,
+            source_state.attributes.get("unit_of_measurement"),
         )
+        if unit is None:
+            return
         self._accumulator.start_session(reading, unit=unit)
         self._session_initialized = True
+
+    @callback
+    def _update_from_current_source(self) -> None:
+        """Feed the current source reading to the accumulator."""
+        source_state = self.hass.states.get(self._source_entity_id)
+        if source_state is None or source_state.state in (
+            STATE_UNAVAILABLE, STATE_UNKNOWN,
+        ):
+            return
+
+        try:
+            reading = float(source_state.state)
+        except (ValueError, TypeError):
+            return
+
+        unit = _ENERGY_UNIT_MAP.get(
+            source_state.attributes.get("unit_of_measurement"),
+        )
+        if unit is None:
+            return
+        self._accumulator.update(reading, unit=unit)
+        self._attr_native_value = self._accumulator.role_value

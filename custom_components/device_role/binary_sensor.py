@@ -23,6 +23,7 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     DOMAIN,
 )
+from .helpers import resolve_source_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,12 +42,14 @@ async def async_setup_entry(
         if mapping[CONF_DOMAIN] != "binary_sensor":
             continue
 
+        source_entity_id = resolve_source_entity_id(hass, mapping)
+
         entities.append(
             RoleBinarySensor(
                 entry=entry,
                 role_name=role_name,
                 slot=mapping[CONF_SLOT],
-                source_entity_id=mapping[CONF_SOURCE_ENTITY_ID],
+                source_entity_id=source_entity_id,
                 device_class_str=mapping.get(CONF_DEVICE_CLASS),
                 active=active,
             )

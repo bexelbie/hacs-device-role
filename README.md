@@ -90,6 +90,30 @@ After creation, open the integration entry to:
 - Home Assistant 2025.1 or later
 - No external dependencies
 
+## FAQ
+
+### Does reassignment preserve energy history?
+
+Energy history is tied to **slot names** (e.g. `sensor_energy`), which are
+derived from the entity's domain and device class.  If you reassign a role
+from one device to another and both devices have an energy sensor with the
+same device class, the slot name stays the same and accumulated energy
+carries forward seamlessly.
+
+If the replacement device has a different set of entity types (e.g. the
+old device had an energy sensor but the new one doesn't), the old slot's
+energy history becomes orphaned — it's still in storage but no entity
+references it.  This is by design: the role's entity IDs stay stable for
+matching entities, and there's nothing meaningful to do with history from
+an entity type the new device doesn't support.
+
+### What energy units are supported?
+
+The accumulator supports **kWh**, **Wh**, and **MWh**.  Readings in other
+units are silently ignored to prevent data corruption.  If your device
+reports in an unsupported unit, the energy sensor will not accumulate
+until the unit is recognized.
+
 ## Development
 
 ```bash

@@ -13,9 +13,11 @@ _UNIT_TO_KWH: dict[str, float] = {
 }
 
 
-def _to_kwh(value: float, unit: str) -> float:
-    """Convert an energy value to kWh."""
-    factor = _UNIT_TO_KWH.get(unit, 1.0)
+def _to_kwh(value: float, unit: str) -> float | None:
+    """Convert an energy value to kWh. Returns None for unsupported units."""
+    factor = _UNIT_TO_KWH.get(unit)
+    if factor is None:
+        return None
     return value * factor
 
 
@@ -44,9 +46,16 @@ class EnergyAccumulator:
         delta = self._last_physical - self._session_start
         return self._historical_sum + max(0.0, delta)
 
+    @property
+    def session_active(self) -> bool:
+        """Whether the accumulator currently has an active session."""
+        return self._session_active
+
     def start_session(self, physical_reading: float, unit: str = ENERGY_INTERNAL_UNIT) -> None:
         """Begin a new accumulation session from the current physical reading."""
         reading_kwh = _to_kwh(physical_reading, unit)
+        if reading_kwh is None:
+            return
 
         if reading_kwh == 0.0:
             # Device may be reporting an unstable initial value
@@ -70,6 +79,8 @@ class EnergyAccumulator:
             return
 
         reading_kwh = _to_kwh(physical_reading, unit)
+        if reading_kwh is None:
+            return
 
         # Handle deferred session start (initial zero instability)
         if self._awaiting_stable_start:

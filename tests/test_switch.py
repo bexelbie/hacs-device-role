@@ -212,3 +212,35 @@ async def test_switch_inactive_unavailable(hass: HomeAssistant) -> None:
     role_state = hass.states.get("switch.projector_switch")
     assert role_state is not None
     assert role_state.state == STATE_UNAVAILABLE
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_switch_inactive_blocks_commands(hass: HomeAssistant) -> None:
+    """Test that an inactive role switch does not forward commands."""
+    device, entity_entry = _setup_physical_switch(hass)
+    hass.states.async_set(entity_entry.entity_id, STATE_OFF)
+
+    entry = _make_switch_role(
+        device.id, entity_entry.unique_id, entity_entry.entity_id, active=False
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_entity = _get_role_entity(hass, "switch.projector_switch")
+    assert role_entity is not None
+
+    calls_made = []
+    original = hass.services.async_call.__func__
+
+    async def intercept(self, *args, **kwargs):
+        calls_made.append(args)
+        return await original(self, *args, **kwargs)
+
+    with patch.object(type(hass.services), "async_call", intercept):
+        await role_entity.async_turn_on()
+        await role_entity.async_turn_off()
+
+    # No service calls should have been forwarded
+    assert len(calls_made) == 0

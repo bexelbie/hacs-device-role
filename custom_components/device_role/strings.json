@@ -39,10 +39,27 @@
         "title": "Device Role Options",
         "data": {
           "active": "Role active",
-          "device_id": "Physical device",
+          "entities": "Entities",
+          "change_device": "Change physical device"
+        }
+      },
+      "select_device": {
+        "title": "Select New Physical Device",
+        "description": "Choose a new physical device to back this role.",
+        "data": {
+          "device_id": "Device"
+        }
+      },
+      "select_entities": {
+        "title": "Select Entities",
+        "description": "Choose which entities from this device the role should mirror.",
+        "data": {
           "entities": "Entities"
         }
       }
+    },
+    "error": {
+      "entity_claimed": "One or more selected entities are already claimed by another active role."
     }
   }
 }

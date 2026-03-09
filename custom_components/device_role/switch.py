@@ -26,6 +26,7 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     DOMAIN,
 )
+from .helpers import resolve_source_entity_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,12 +45,14 @@ async def async_setup_entry(
         if mapping[CONF_DOMAIN] != "switch":
             continue
 
+        source_entity_id = resolve_source_entity_id(hass, mapping)
+
         entities.append(
             RoleSwitch(
                 entry=entry,
                 role_name=role_name,
                 slot=mapping[CONF_SLOT],
-                source_entity_id=mapping[CONF_SOURCE_ENTITY_ID],
+                source_entity_id=source_entity_id,
                 active=active,
             )
         )
@@ -136,6 +139,8 @@ class RoleSwitch(SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Forward turn_on to the physical switch."""
+        if not self._active:
+            return
         await self.hass.services.async_call(
             "switch",
             SERVICE_TURN_ON,
@@ -145,6 +150,8 @@ class RoleSwitch(SwitchEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Forward turn_off to the physical switch."""
+        if not self._active:
+            return
         await self.hass.services.async_call(
             "switch",
             SERVICE_TURN_OFF,

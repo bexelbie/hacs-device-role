@@ -167,3 +167,20 @@ class TestEnergyAccumulator:
 
         acc.update(110.0)
         assert acc.role_value == 10.0
+
+    def test_unknown_unit_ignored_on_update(self) -> None:
+        """Updates with unrecognized energy units are silently skipped."""
+        acc = EnergyAccumulator()
+        acc.start_session(physical_reading=100.0, unit="kWh")
+        acc.update(110.0, unit="kWh")
+        assert acc.role_value == 10.0
+
+        # An update in an unknown unit should be ignored, not treated as kWh
+        acc.update(99999.0, unit="J")
+        assert acc.role_value == 10.0
+
+    def test_unknown_unit_ignored_on_start_session(self) -> None:
+        """Starting a session with an unrecognized unit is a no-op."""
+        acc = EnergyAccumulator()
+        acc.start_session(physical_reading=100.0, unit="BTU")
+        assert acc.session_active is False
