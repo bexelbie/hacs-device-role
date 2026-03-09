@@ -114,79 +114,12 @@ units are silently ignored to prevent data corruption.  If your device
 reports in an unsupported unit, the energy sensor will not accumulate
 until the unit is recognized.
 
-## Development
+## Contributing
 
-```bash
-# Create a virtualenv and install test dependencies
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements_test.txt
-
-# Run the unit test suite (70 tests)
-pytest tests/ -v --ignore=tests/e2e
-```
-
-### E2E Testing
-
-The project includes E2E tests that run against a real Home Assistant Docker
-container.  These focus on scenarios unit tests can't cover — primarily that
-energy accumulator state survives HA restarts.
-
-We evaluated three approaches:
-
-| Approach | Verdict |
-|----------|---------|
-| WebSocket API (drive config flows) | ❌ Underdocumented internal protocol, fragile across HA versions |
-| Playwright / headless browser | ❌ Shadow DOM selector hell, ~400MB browser dep, very flaky |
-| **Pre-seed `.storage/` + REST API** | ✅ Simple, stable, tests exactly what unit tests can't |
-
-**Why pre-seed?** Our 70 unit tests already cover config flows, options flows,
-and all entity behavior via `pytest-homeassistant-custom-component`. The E2E
-gap is persistence across real HA restarts — which doesn't require UI or config
-flow driving.  Pre-seeding `.storage/` files is the same mechanism HA uses
-internally, and REST API for states/services is stable and well-documented.
-
-```bash
-# Run E2E tests locally (requires Docker)
-./scripts/run-e2e.sh
-```
-
-E2E tests run automatically on PRs via GitHub Actions.
-
-See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) for architecture details and
-[analysis.md](analysis.md) for the original design rationale.
-
-### Repository layout
-
-```
-custom_components/
-├── device_role/           # The main integration
-│   ├── __init__.py        # Setup, platform forwarding, store manager
-│   ├── config_flow.py     # 3-step config flow + options flow
-│   ├── sensor.py          # Measurement + energy sensors
-│   ├── binary_sensor.py   # Binary sensor mirroring
-│   ├── switch.py          # Switch mirroring + command forwarding
-│   ├── accumulator.py     # Session-based energy accumulator (pure logic)
-│   ├── helpers.py         # Runtime entity_id resolution
-│   ├── const.py           # Constants and defaults
-│   └── strings.json       # UI strings
-│
-├── fake_device/           # Test fixture integration (see its own README)
-
-tests/                     # 70 unit tests + E2E tests
-├── e2e/                   # E2E tests against real HA Docker container
-│   ├── ha_client.py       # REST API client (onboard, auth, state, service)
-│   └── seed.py            # .storage/ file pre-seeding helpers
-├── test_*.py              # Unit tests
-
-scripts/
-  run-e2e.sh               # Local E2E runner
-
-.github/workflows/
-  unit-tests.yml            # Unit tests on push + PR
-  e2e.yml                   # E2E tests on PR only
-```
+See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) for build commands, architecture,
+testing, and release process.  See [analysis.md](analysis.md) for the original
+design rationale.
 
 ## License
 
-TBD
+MIT

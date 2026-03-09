@@ -8,6 +8,10 @@ import os
 from pathlib import Path
 
 
+# Fixed timestamp for reproducible seeds
+_SEED_TIMESTAMP = "2025-01-01T00:00:00.000000+00:00"
+
+
 def write_storage_file(config_dir: str | Path, key: str, data: dict) -> None:
     """Write a .storage/ JSON file in HA's internal format."""
     storage_dir = Path(config_dir) / ".storage"
@@ -50,9 +54,14 @@ def make_fake_device_entry(
         "version": 1,
         "minor_version": 1,
         "source": "user",
+        "unique_id": None,
         "disabled_by": None,
         "pref_disable_new_entities": False,
         "pref_disable_polling": False,
+        "created_at": _SEED_TIMESTAMP,
+        "modified_at": _SEED_TIMESTAMP,
+        "discovery_keys": {},
+        "subentries": [],
     }
 
 
@@ -78,9 +87,14 @@ def make_device_role_entry(
         "version": 1,
         "minor_version": 1,
         "source": "user",
+        "unique_id": None,
         "disabled_by": None,
         "pref_disable_new_entities": False,
         "pref_disable_polling": False,
+        "created_at": _SEED_TIMESTAMP,
+        "modified_at": _SEED_TIMESTAMP,
+        "discovery_keys": {},
+        "subentries": [],
     }
 
 

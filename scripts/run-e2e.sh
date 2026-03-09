@@ -40,7 +40,7 @@ if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
 fi
 
-pytest tests/e2e/ -v -m e2e --tb=short
+pytest tests/e2e/ -v -m e2e --tb=short --confcutdir=tests/e2e
 exit_code=$?
 
 # Clean up container regardless of test result

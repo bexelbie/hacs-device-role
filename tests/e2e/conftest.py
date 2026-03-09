@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -13,7 +12,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
 
 from .ha_client import HAClient
 from .seed import (
@@ -32,16 +30,23 @@ HA_IMAGE = os.environ.get(
 )
 CONTAINER_NAME = "ha-e2e-test"
 HA_PORT = int(os.environ.get("HA_E2E_PORT", "18123"))
-HA_URL = f"http://localhost:{HA_PORT}"
+HA_URL = f"http://127.0.0.1:{HA_PORT}"
 
-# Location of custom_components relative to repo root
+# Location of custom_components and test fixtures relative to repo root
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CUSTOM_COMPONENTS = REPO_ROOT / "custom_components"
+FAKE_DEVICE_FIXTURE = REPO_ROOT / "tests" / "fixtures" / "fake_device"
 
 FAKE_DEVICE_ENTRY_ID = "fake_device_e2e"
 DEVICE_ROLE_ENTRY_ID = "device_role_e2e"
+DEVICE_ROLE_ENTRY_ID_2 = "device_role_e2e_2"
 ROLE_NAME = "E2E Role"
+ROLE_NAME_2 = "E2E Role 2"
 FAKE_DEVICE_NAME = "test_plug"
+
+# Entity slots assigned to each role (must not overlap)
+ROLE_1_SLOTS = {"sensor_temperature", "sensor_energy", "switch"}
+ROLE_2_SLOTS = {"sensor_humidity", "sensor_power", "binary_sensor_connectivity"}
 
 
 def _docker(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -56,6 +61,14 @@ def _docker(*args: str, check: bool = True) -> subprocess.CompletedProcess:
         _LOGGER.error("docker %s failed:\n%s", " ".join(args), result.stderr)
         result.check_returncode()
     return result
+
+
+def _dump_container_logs() -> None:
+    """Print HA container logs for debugging."""
+    result = _docker("logs", "--tail", "200", CONTAINER_NAME, check=False)
+    print(f"\n=== HA Container Logs (last 200 lines) ===\n{result.stdout}")
+    if result.stderr:
+        print(f"=== HA Container Stderr ===\n{result.stderr}")
 
 
 def _container_exists() -> bool:
@@ -114,8 +127,14 @@ def config_dir():
     tmpdir = tempfile.mkdtemp(prefix="ha_e2e_")
     config_path = Path(tmpdir)
 
-    # Copy custom_components
+    # Copy custom_components (device_role only in repo)
     shutil.copytree(CUSTOM_COMPONENTS, config_path / "custom_components")
+
+    # Copy fake_device from test fixtures into the container's custom_components.
+    # May already exist if the unit-test conftest.py symlink was followed by copytree above.
+    fake_dest = config_path / "custom_components" / "fake_device"
+    if not fake_dest.exists():
+        shutil.copytree(FAKE_DEVICE_FIXTURE, fake_dest)
 
     # Minimal configuration.yaml
     (config_path / "configuration.yaml").write_text("homeassistant:\n")
@@ -139,31 +158,46 @@ def ha_bootstrap(config_dir):
         make_fake_device_entry(entry_id=FAKE_DEVICE_ENTRY_ID, name=FAKE_DEVICE_NAME),
     ])
 
+    # Dump seeded config for debugging
+    seeded = read_storage_file(config_dir, "core.config_entries")
+    print(f"\n=== Seeded config_entries ===\n{json.dumps(seeded, indent=2)}")
+
     _start_container(config_dir)
 
     # Wait for HA to be ready and complete onboarding
-    loop = asyncio.new_event_loop()
+    client = HAClient(HA_URL)
     try:
-        async def _phase1():
-            async with HAClient(HA_URL) as client:
-                await client.wait_for_ready(timeout=120)
-                await client.onboard_and_authenticate()
-                # Give HA a moment to write registries to .storage/
-                await asyncio.sleep(5)
-
-        loop.run_until_complete(_phase1())
+        client.wait_for_ready(timeout=120)
+        client.onboard_and_authenticate()
+        # Give HA a moment to write registries to .storage/
+        import time
+        time.sleep(5)
+    except Exception:
+        _dump_container_logs()
+        raise
     finally:
-        loop.close()
+        client.close()
 
     # Stop container so we can read .storage/ safely
     _docker("stop", CONTAINER_NAME)
 
+    # Fix ownership: HA runs as root in Docker, so .storage/ files are root-owned.
+    # Make them writable so we can overwrite config_entries for phase 2.
+    _docker(
+        "run", "--rm",
+        "-v", f"{config_dir}:/config",
+        HA_IMAGE,
+        "bash", "-c", "chmod -R a+rw /config/.storage",
+    )
+
     # Discover fake_device's device_id and entity IDs
     discovered = discover_fake_device_ids(config_dir, FAKE_DEVICE_ENTRY_ID)
-    _LOGGER.info("Discovered fake_device IDs: %s", discovered)
+    print(f"\n=== Discovered fake_device IDs ===\n{json.dumps(discovered, indent=2)}")
 
-    # Phase 2: add device_role entry and restart
-    entity_mappings = _build_entity_mappings(discovered["entities"])
+    # Phase 2: add device_role entries and restart
+    all_mappings = _build_entity_mappings(discovered["entities"])
+    role_1_mappings = [m for m in all_mappings if m["slot"] in ROLE_1_SLOTS]
+    role_2_mappings = [m for m in all_mappings if m["slot"] in ROLE_2_SLOTS]
 
     seed_config_entries(config_dir, [
         make_fake_device_entry(entry_id=FAKE_DEVICE_ENTRY_ID, name=FAKE_DEVICE_NAME),
@@ -171,27 +205,33 @@ def ha_bootstrap(config_dir):
             entry_id=DEVICE_ROLE_ENTRY_ID,
             role_name=ROLE_NAME,
             device_id=discovered["device_id"],
-            entity_mappings=entity_mappings,
+            entity_mappings=role_1_mappings,
+        ),
+        make_device_role_entry(
+            entry_id=DEVICE_ROLE_ENTRY_ID_2,
+            role_name=ROLE_NAME_2,
+            device_id=discovered["device_id"],
+            entity_mappings=role_2_mappings,
         ),
     ])
 
     _docker("start", CONTAINER_NAME)
 
-    loop = asyncio.new_event_loop()
+    client = HAClient(HA_URL)
     try:
-        async def _phase2():
-            async with HAClient(HA_URL) as client:
-                await client.wait_for_ready(timeout=120)
-                await client.onboard_and_authenticate()
-
-        loop.run_until_complete(_phase2())
+        client.wait_for_ready(timeout=120)
+        client.onboard_and_authenticate()
+    except Exception:
+        _dump_container_logs()
+        raise
     finally:
-        loop.close()
+        client.close()
 
     yield {
         "device_id": discovered["device_id"],
         "entities": discovered["entities"],
-        "entity_mappings": entity_mappings,
+        "entity_mappings": role_1_mappings,
+        "entity_mappings_2": role_2_mappings,
         "config_dir": config_dir,
     }
 
@@ -199,29 +239,26 @@ def ha_bootstrap(config_dir):
     _remove_container()
 
 
-@pytest_asyncio.fixture
-async def ha_client(ha_bootstrap):
+@pytest.fixture
+def ha_client(ha_bootstrap):
     """Provide an authenticated HAClient for each test."""
-    async with HAClient(HA_URL) as client:
-        await client.wait_for_ready(timeout=60)
-        await client.onboard_and_authenticate()
-        yield client
+    client = HAClient(HA_URL)
+    client.wait_for_ready(timeout=60)
+    client.onboard_and_authenticate()
+    yield client
+    client.close()
 
 
 @pytest.fixture
 def restart_ha():
     """Return a callable that restarts the HA container and waits for ready."""
-    async def _restart():
+    def _restart():
         _restart_container()
-        async with HAClient(HA_URL) as client:
-            await client.wait_for_ready(timeout=120)
-            await client.onboard_and_authenticate()
-
-    def sync_restart():
-        loop = asyncio.new_event_loop()
+        client = HAClient(HA_URL)
         try:
-            loop.run_until_complete(_restart())
+            client.wait_for_ready(timeout=120)
+            client.onboard_and_authenticate()
         finally:
-            loop.close()
+            client.close()
 
-    return sync_restart
+    return _restart

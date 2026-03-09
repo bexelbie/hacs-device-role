@@ -3,10 +3,26 @@ name: E2E Tests
 on:
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      ha_version:
+        description: 'HA Docker image tag (e.g., stable, 2026.1, beta, dev)'
+        default: 'stable'
+        type: string
+  schedule:
+    # Weekly Monday 6am UTC: test against HA beta to catch breaking changes
+    # before they hit stable. GitHub emails repo owner on failure.
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
 
 jobs:
   e2e:
     runs-on: ubuntu-latest
+
+    env:
+      HA_E2E_IMAGE: "ghcr.io/home-assistant/home-assistant:${{ inputs.ha_version || (github.event_name == 'schedule' && 'beta') || 'stable' }}"
 
     steps:
       - uses: actions/checkout@v4
@@ -17,15 +33,19 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -r requirements_test.txt
+        run: pip install -r requirements_e2e.txt
 
       - name: Pull HA Docker image
-        run: docker pull ghcr.io/home-assistant/home-assistant:stable
+        run: docker pull "$HA_E2E_IMAGE"
 
       - name: Run E2E tests
         run: |
           chmod +x scripts/run-e2e.sh
           scripts/run-e2e.sh
+
+      - name: Dump HA container logs on failure
+        if: failure()
+        run: docker logs ha-e2e-test 2>&1 | tail -300 || true
 
       - name: Clean up Docker
         if: always()

@@ -1,40 +1,12 @@
-# Device Role — Home Assistant Custom Integration
-
-## Overview
-
-Separates physical device identity from logical function in Home Assistant.
-A "role" is a logical entity (e.g., "Projector", "Balcony") backed by a physical
-device. Reassigning the physical device doesn't change the role's entity IDs,
-history, or energy accumulation.
-
-See `analysis.md` for the full problem space and design rationale.
+# Device Role — Developer Reference
 
 ## Tech Stack
 
 - **Language**: Python 3.12+
 - **Platform**: Home Assistant custom integration
-- **Target HA version**: 2025.x+
+- **Target HA version**: 2025.1+
 - **Testing**: pytest + pytest-homeassistant-custom-component
-
-## Project Layout
-
-```
-custom_components/device_role/   # The integration
-    __init__.py                  # Setup/teardown, platform forwarding
-    manifest.json                # HA integration manifest
-    config_flow.py               # Config flow + options flow
-    const.py                     # Constants and defaults
-    sensor.py                    # Measurement + energy role sensors
-    switch.py                    # Switch role entities
-    binary_sensor.py             # Binary sensor role entities
-    accumulator.py               # Energy session accumulator
-    strings.json                 # UI strings
-    translations/en.json         # English translations
-
-tests/                           # pytest test suite
-    conftest.py                  # Shared fixtures
-    test_*.py                    # Test modules
-```
+- **CI**: GitHub Actions (unit tests on push, E2E on PR, release on tag)
 
 ## Build / Test Commands
 
@@ -42,11 +14,14 @@ tests/                           # pytest test suite
 # Install test dependencies
 pip install -r requirements_test.txt
 
-# Run tests
-pytest tests/ -v
+# Run unit tests (70 tests, excludes E2E)
+pytest tests/ -v --ignore=tests/e2e
+
+# Run E2E tests locally (requires Docker)
+./scripts/run-e2e.sh
 
 # Run a specific test file
-pytest tests/test_init.py -v
+pytest tests/test_accumulator.py -v
 ```
 
 ## Architecture
@@ -57,3 +32,45 @@ pytest tests/test_init.py -v
 - **Energy accumulator**: Tracks deltas per session. Persisted via HA Store API.
   Energy role entities freeze (stay available) when inactive; other types go unavailable.
 - **Physical entity references**: Stored by entity registry unique_id, not entity_id string.
+  Resolved to current entity_id at runtime via `helpers.resolve_source_entity_id()`.
+
+## Testing
+
+**Unit tests** use `pytest-homeassistant-custom-component` which provides a
+mock HA core but exercises real integration code. The `fake_device` test
+fixture (in `tests/fixtures/`) creates virtual multi-entity devices with a
+deterministic `set_value` service. It's symlinked into `custom_components/`
+at test collection time.
+
+**E2E tests** run against a real HA Docker container. They use pre-seeded
+`.storage/` files + REST API (not WebSocket config flows or browser
+automation) because config flows are already covered by unit tests. The E2E
+gap is specifically persistence across real HA restarts.
+
+## Releasing
+
+GitHub Release notes are sourced from the tagged commit message.
+
+```bash
+# 1. Bump version in custom_components/device_role/manifest.json
+# 2. Commit with release notes in the message body
+git commit -m "v0.2.0
+
+- Added device reassignment workflow
+- Fixed energy accumulator restart persistence"
+
+# 3. Tag and push
+git tag v0.2.0
+git push origin main --tags
+```
+
+The release workflow (`release.yml`) runs unit tests, validates that
+`manifest.json` version matches the tag, then creates a GitHub Release.
+
+## Known Limitations
+
+- **TOCTOU race in entity claim checks**: Concurrent config flows could both
+  pass claim validation. Documented, not fixed (YAGNI — user-driven UI, same
+  pattern as all HA flows).
+- **Slot-name orphaning on reassignment**: If the new device has different
+  entity types, old slot history is orphaned in storage. By design.

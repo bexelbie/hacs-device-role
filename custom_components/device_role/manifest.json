@@ -1,9 +1,10 @@
 {
   "domain": "device_role",
   "name": "Device Role",
-  "codeowners": [],
+  "codeowners": ["@bexelbie"],
   "config_flow": true,
-  "documentation": "",
+  "documentation": "https://github.com/bexelbie/hacs-device-role",
+  "issue_tracker": "https://github.com/bexelbie/hacs-device-role/issues",
   "iot_class": "local_push",
   "version": "0.1.0"
 }
