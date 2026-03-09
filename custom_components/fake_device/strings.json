@@ -1,0 +1,12 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Create Fake Device",
+        "data": {
+          "name": "Device name"
+        }
+      }
+    }
+  }
+}

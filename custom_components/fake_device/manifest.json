@@ -1,0 +1,9 @@
+{
+  "domain": "fake_device",
+  "name": "Fake Device",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "",
+  "iot_class": "local_push",
+  "version": "0.1.0"
+}
