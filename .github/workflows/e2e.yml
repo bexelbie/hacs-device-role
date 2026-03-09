@@ -1,0 +1,32 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements_test.txt
+
+      - name: Pull HA Docker image
+        run: docker pull ghcr.io/home-assistant/home-assistant:stable
+
+      - name: Run E2E tests
+        run: |
+          chmod +x scripts/run-e2e.sh
+          scripts/run-e2e.sh
+
+      - name: Clean up Docker
+        if: always()
+        run: docker rm -f ha-e2e-test 2>/dev/null || true
