@@ -1,5 +1,5 @@
 # ABOUTME: Sensor platform for the device_role integration.
-# ABOUTME: Creates role sensor entities that mirror physical measurement and energy sensors.
+# ABOUTME: Creates role sensor entities that mirror measurement and accumulating sensors.
 
 import logging
 
@@ -9,14 +9,14 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfEnergy
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 
-from .accumulator import EnergyAccumulator
+from .accumulator import SessionAccumulator
 from .const import (
     CONF_ACTIVE,
     CONF_DEVICE_CLASS,
@@ -33,11 +33,6 @@ from .const import (
 from .helpers import build_role_device_info, resolve_source_entity_id, resolve_via_device
 
 _LOGGER = logging.getLogger(__name__)
-
-# Energy device classes handled by the accumulator (Phase 6/7)
-ENERGY_DEVICE_CLASSES = {
-    SensorDeviceClass.ENERGY,
-}
 
 
 async def async_setup_entry(
@@ -74,11 +69,12 @@ async def async_setup_entry(
         # Detect state_class and unit from the source entity
         use_accumulator = False
         source_state_class = None
+        source_uom = ""
         source_state = hass.states.get(source_entity_id)
         if source_state is not None:
             source_state_class = source_state.attributes.get("state_class")
             source_uom = source_state.attributes.get("unit_of_measurement", "")
-            if source_state_class == "total_increasing" and source_uom in _ENERGY_UNIT_MAP:
+            if source_state_class == "total_increasing":
                 use_accumulator = True
 
         if use_accumulator:
@@ -86,12 +82,14 @@ async def async_setup_entry(
             accumulator = store_manager.get_or_create(acc_key)
 
             entities.append(
-                RoleEnergySensor(
+                RoleAccumulatingSensor(
                     entry=entry,
                     role_name=role_name,
                     slot=mapping[CONF_SLOT],
                     source_entity_id=source_entity_id,
                     source_name=source_name,
+                    device_class_str=device_class_str,
+                    source_uom=source_uom,
                     active=active,
                     accumulator=accumulator,
                     store_manager=store_manager,
@@ -230,13 +228,13 @@ class RoleMeasurementSensor(SensorEntity):
 
 
 class AccumulatorStoreManager:
-    """Manages persistent storage for energy accumulators across all roles."""
+    """Manages persistent storage for accumulators across all roles."""
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the store manager."""
         self._hass = hass
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.json")
-        self._accumulators: dict[str, EnergyAccumulator] = {}
+        self._accumulators: dict[str, SessionAccumulator] = {}
         self._loaded = False
 
     async def async_load(self) -> None:
@@ -246,13 +244,13 @@ class AccumulatorStoreManager:
         data = await self._store.async_load()
         if data and isinstance(data, dict):
             for key, acc_data in data.get("accumulators", {}).items():
-                self._accumulators[key] = EnergyAccumulator.from_dict(acc_data)
+                self._accumulators[key] = SessionAccumulator.from_dict(acc_data)
         self._loaded = True
 
-    def get_or_create(self, key: str) -> EnergyAccumulator:
+    def get_or_create(self, key: str) -> SessionAccumulator:
         """Get an existing accumulator or create a new one."""
         if key not in self._accumulators:
-            self._accumulators[key] = EnergyAccumulator()
+            self._accumulators[key] = SessionAccumulator()
         return self._accumulators[key]
 
     def remove_by_entry(self, entry_id: str) -> None:
@@ -279,23 +277,12 @@ class AccumulatorStoreManager:
             }
         }
 
-
-# Map from source unit strings to the unit parameter for the accumulator
-_ENERGY_UNIT_MAP = {
-    "kWh": "kWh",
-    "Wh": "Wh",
-    "MWh": "MWh",
-}
-
-
-class RoleEnergySensor(SensorEntity):
-    """A role energy sensor backed by a session accumulator."""
+class RoleAccumulatingSensor(SensorEntity):
+    """A role sensor backed by a session accumulator for total_increasing sources."""
 
     _attr_should_poll = False
     _attr_has_entity_name = True
-    _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
-    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_suggested_display_precision = 3
 
     def __init__(
@@ -305,12 +292,14 @@ class RoleEnergySensor(SensorEntity):
         slot: str,
         source_entity_id: str,
         active: bool,
-        accumulator: EnergyAccumulator,
+        accumulator: SessionAccumulator,
         store_manager: AccumulatorStoreManager,
+        device_class_str: str | None = None,
+        source_uom: str | None = None,
         source_name: str | None = None,
         via_device_id: tuple | None = None,
     ) -> None:
-        """Initialize the role energy sensor."""
+        """Initialize the role accumulating sensor."""
         self._entry = entry
         self._role_name = role_name
         self._slot = slot
@@ -326,6 +315,15 @@ class RoleEnergySensor(SensorEntity):
         self._attr_name = source_name or slot.replace("_", " ").title()
         self._attr_native_value = accumulator.role_value
 
+        # Copy device_class and unit from source
+        if device_class_str:
+            try:
+                self._attr_device_class = SensorDeviceClass(device_class_str)
+            except ValueError:
+                pass
+        if source_uom:
+            self._attr_native_unit_of_measurement = source_uom
+
     @property
     def device_info(self):
         """Return device info to group role entities under a role device."""
@@ -333,7 +331,7 @@ class RoleEnergySensor(SensorEntity):
 
     @property
     def available(self) -> bool:
-        """Energy sensors stay available even when inactive (frozen value)."""
+        """Accumulating sensors stay available even when inactive (frozen value)."""
         return True
 
     async def async_added_to_hass(self) -> None:
@@ -342,11 +340,9 @@ class RoleEnergySensor(SensorEntity):
             return
 
         if self._accumulator.session_active:
-            # Session was restored from persistent storage — process current state
             self._session_initialized = True
             self._update_from_current_source()
         else:
-            # No active session — try to start one from the current source reading
             self._try_start_session()
 
         self._unsub_listener = async_track_state_change_event(
@@ -358,11 +354,6 @@ class RoleEnergySensor(SensorEntity):
         if self._unsub_listener:
             self._unsub_listener()
             self._unsub_listener = None
-        # Commit the session if the role is being deactivated OR if this
-        # entity's slot was removed from the mappings (active role, entity
-        # dropped via options flow). On restart/reload where the slot is
-        # still mapped, preserve the active session so downtime energy is
-        # attributed correctly.
         slot_still_mapped = any(
             m.get(CONF_SLOT) == self._slot
             for m in self._entry.data.get(CONF_ENTITY_MAPPINGS, [])
@@ -394,12 +385,7 @@ class RoleEnergySensor(SensorEntity):
         except (ValueError, TypeError):
             return
 
-        unit = _ENERGY_UNIT_MAP.get(
-            source_state.attributes.get("unit_of_measurement"),
-        )
-        if unit is None:
-            return
-        self._accumulator.update(reading, unit=unit)
+        self._accumulator.update(reading)
         self._attr_native_value = self._accumulator.role_value
         self._store_manager.schedule_save()
         self.async_write_ha_state()
@@ -418,12 +404,9 @@ class RoleEnergySensor(SensorEntity):
         except (ValueError, TypeError):
             return
 
-        unit = _ENERGY_UNIT_MAP.get(
-            source_state.attributes.get("unit_of_measurement"),
-        )
-        if unit is None:
+        unit = source_state.attributes.get("unit_of_measurement", "")
+        if not self._accumulator.start_session(reading, unit=unit):
             return
-        self._accumulator.start_session(reading, unit=unit)
         self._session_initialized = True
 
     @callback
@@ -440,10 +423,5 @@ class RoleEnergySensor(SensorEntity):
         except (ValueError, TypeError):
             return
 
-        unit = _ENERGY_UNIT_MAP.get(
-            source_state.attributes.get("unit_of_measurement"),
-        )
-        if unit is None:
-            return
-        self._accumulator.update(reading, unit=unit)
+        self._accumulator.update(reading)
         self._attr_native_value = self._accumulator.role_value

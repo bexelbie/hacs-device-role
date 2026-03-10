@@ -23,6 +23,5 @@ CONF_SOURCE_ENTITY_ID = "source_entity_id"
 CONF_DOMAIN = "domain"
 CONF_DEVICE_CLASS = "device_class"
 
-# Energy accumulator defaults
-ENERGY_RESET_THRESHOLD = 0.5  # kWh — drops smaller than this are jitter, not resets
-ENERGY_INTERNAL_UNIT = "kWh"
+# Accumulator defaults
+RESET_DROP_FRACTION = 0.1  # Drops > 10% of last reading treated as device reset

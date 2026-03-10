@@ -1,4 +1,4 @@
-# ABOUTME: Tests for device_role energy sensor entities with accumulator.
+# ABOUTME: Tests for device_role accumulating sensor entities.
 # ABOUTME: Verifies accumulator integration, persistence, and frozen-when-inactive behavior.
 
 import pytest
@@ -361,8 +361,8 @@ async def test_energy_sensor_reassignment_commits_session(
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_energy_sensor_unit_is_kwh(hass: HomeAssistant) -> None:
-    """Test that energy role sensor always reports in kWh."""
+async def test_energy_sensor_copies_unit_from_source(hass: HomeAssistant) -> None:
+    """Test that accumulating role sensor copies unit from the source entity."""
     device, entity_entry = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
@@ -380,40 +380,74 @@ async def test_energy_sensor_unit_is_kwh(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_energy_sensor_ignores_unsupported_unit(hass: HomeAssistant) -> None:
-    """Test that readings with unsupported units are silently dropped."""
-    device, entity_entry = _setup_physical_energy_sensor(hass)
-    # Start with a valid kWh reading to initialize the session
-    hass.states.async_set(
-        entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total_increasing"},
+async def test_accumulator_works_with_non_energy_unit(hass: HomeAssistant) -> None:
+    """Test that accumulator works with non-energy total_increasing sensors (e.g., water)."""
+    device_reg = dr.async_get(hass)
+    entity_reg = er.async_get(hass)
+
+    source_entry = MockConfigEntry(domain="test", title="test source")
+    source_entry.add_to_hass(hass)
+
+    device = device_reg.async_get_or_create(
+        config_entry_id=source_entry.entry_id,
+        identifiers={("test", "water_device_1")},
+        name="Water Meter",
     )
 
-    entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
+    water_entity = entity_reg.async_get_or_create(
+        "sensor",
+        "test",
+        "water_1",
+        suggested_object_id="water_meter_consumption",
+        device_id=device.id,
+        original_device_class=SensorDeviceClass.WATER,
+        original_name="Consumption",
+        unit_of_measurement="m³",
+    )
+
+    hass.states.async_set(
+        water_entity.entity_id, "1000.0",
+        {"unit_of_measurement": "m³", "device_class": "water", "state_class": "total_increasing"},
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Garden",
+        data={
+            CONF_ROLE_NAME: "Garden",
+            CONF_DEVICE_ID: device.id,
+            CONF_ACTIVE: True,
+            CONF_ENTITY_MAPPINGS: [
+                {
+                    CONF_SLOT: "sensor_water",
+                    CONF_SOURCE_UNIQUE_ID: water_entity.unique_id,
+                    CONF_SOURCE_ENTITY_ID: water_entity.entity_id,
+                    CONF_DOMAIN: "sensor",
+                    CONF_DEVICE_CLASS: "water",
+                },
+            ],
+        },
+    )
     entry.add_to_hass(hass)
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    # Accumulate some valid kWh energy
+    role_state = hass.states.get("sensor.garden_consumption")
+    assert role_state is not None
+    assert float(role_state.state) == 0.0
+    assert role_state.attributes.get("unit_of_measurement") == "m³"
+    assert role_state.attributes.get("device_class") == "water"
+
+    # Water meter advances by 50 m³
     hass.states.async_set(
-        entity_entry.entity_id, "110.0",
-        {"unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total_increasing"},
+        water_entity.entity_id, "1050.0",
+        {"unit_of_measurement": "m³", "device_class": "water", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_energy")
-    assert float(role_state.state) == pytest.approx(10.0)
-
-    # Now the source switches to an unsupported unit — should be ignored
-    hass.states.async_set(
-        entity_entry.entity_id, "999999.0",
-        {"unit_of_measurement": "J", "device_class": "energy", "state_class": "total_increasing"},
-    )
-    await hass.async_block_till_done()
-
-    role_state = hass.states.get("sensor.projector_energy")
-    assert float(role_state.state) == pytest.approx(10.0)
+    role_state = hass.states.get("sensor.garden_consumption")
+    assert float(role_state.state) == 50.0
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -458,3 +492,74 @@ async def test_energy_session_committed_on_mapping_removal(
     acc_data = acc.to_dict()
     assert acc_data["historical_sum"] == pytest.approx(10.0)
     assert acc_data["session_active"] is False
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_reassignment_blocked_on_unit_mismatch(
+    hass: HomeAssistant,
+) -> None:
+    """Test that reassigning to a device with a different unit is rejected."""
+    # Device A: energy in kWh, accumulate some value
+    device_a, energy_a = _setup_physical_energy_sensor(hass)
+    hass.states.async_set(
+        energy_a.entity_id, "100.0",
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
+    )
+
+    entry = _make_energy_role(
+        device_a.id, energy_a.unique_id, energy_a.entity_id
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(
+        energy_a.entity_id, "110.0",
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
+    )
+    await hass.async_block_till_done()
+
+    # Device B: energy sensor reporting in Wh (different unit)
+    device_reg = dr.async_get(hass)
+    entity_reg = er.async_get(hass)
+
+    source_b = MockConfigEntry(domain="test", title="test b")
+    source_b.add_to_hass(hass)
+
+    device_b = device_reg.async_get_or_create(
+        config_entry_id=source_b.entry_id,
+        identifiers={("test", "device_wh")},
+        name="Smart Plug Wh",
+    )
+    energy_b = entity_reg.async_get_or_create(
+        "sensor", "test", "energy_wh",
+        suggested_object_id="wh_plug_energy",
+        device_id=device_b.id,
+        original_device_class=SensorDeviceClass.ENERGY,
+        original_name="Energy",
+        unit_of_measurement="Wh",
+    )
+    hass.states.async_set(
+        energy_b.entity_id, "50000.0",
+        {"unit_of_measurement": "Wh", "state_class": "total_increasing"},
+    )
+
+    # Attempt reassignment via options flow
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTIVE: True, "change_device": True},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_DEVICE_ID: device_b.id},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"entities": [energy_b.entity_id]},
+    )
+
+    # Flow should show error and stay on the form
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "unit_mismatch"}

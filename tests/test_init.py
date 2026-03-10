@@ -84,11 +84,13 @@ async def test_remove_entry_purges_accumulators(
     store_manager = hass.data[DOMAIN]["store_manager"]
     # Seed an accumulator for this entry
     acc = store_manager.get_or_create(f"{mock_config_entry.entry_id}_sensor_energy")
-    acc.update(1.0, "kWh")
+    acc.start_session(0.5, "kWh")
+    acc.update(1.0)
 
     # Also seed one for a different entry to confirm it's not removed
     other_acc = store_manager.get_or_create("other_entry_sensor_energy")
-    other_acc.update(2.0, "kWh")
+    other_acc.start_session(1.5, "kWh")
+    other_acc.update(2.0)
 
     await hass.config_entries.async_remove(mock_config_entry.entry_id)
     await hass.async_block_till_done()

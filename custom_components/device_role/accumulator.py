@@ -1,31 +1,20 @@
-# ABOUTME: Energy session accumulator for device_role integration.
-# ABOUTME: Tracks cumulative energy per role across sessions, with persistent storage.
+# ABOUTME: Session accumulator for total_increasing sensors in the device_role integration.
+# ABOUTME: Tracks cumulative values per role across sessions, with persistent storage.
 
 from __future__ import annotations
 
-from .const import ENERGY_INTERNAL_UNIT, ENERGY_RESET_THRESHOLD
+import logging
 
-# Conversion factors to kWh
-_UNIT_TO_KWH: dict[str, float] = {
-    "kWh": 1.0,
-    "Wh": 0.001,
-    "MWh": 1000.0,
-}
+from .const import RESET_DROP_FRACTION
+
+_LOGGER = logging.getLogger(__name__)
 
 
-def _to_kwh(value: float, unit: str) -> float | None:
-    """Convert an energy value to kWh. Returns None for unsupported units."""
-    factor = _UNIT_TO_KWH.get(unit)
-    if factor is None:
-        return None
-    return value * factor
+class SessionAccumulator:
+    """Tracks a cumulative total_increasing value for a role across sessions.
 
-
-class EnergyAccumulator:
-    """Tracks cumulative energy for a role across multiple sessions.
-
-    Each session records deltas from a physical energy sensor. Sessions
-    are committed when a role is deactivated or its device is replaced.
+    Each session records deltas from a physical sensor. Sessions are
+    committed when a role is deactivated or its device is replaced.
     The accumulator's value only increases.
     """
 
@@ -35,12 +24,13 @@ class EnergyAccumulator:
         self._session_start: float | None = None
         self._last_physical: float | None = None
         self._session_active: bool = False
+        self._unit: str | None = None
         # When session starts with zero, defer start until first real reading
         self._awaiting_stable_start: bool = False
 
     @property
     def role_value(self) -> float:
-        """The role's accumulated energy value in kWh."""
+        """The role's accumulated value."""
         if not self._session_active or self._last_physical is None or self._session_start is None:
             return self._historical_sum
         delta = self._last_physical - self._session_start
@@ -51,60 +41,76 @@ class EnergyAccumulator:
         """Whether the accumulator currently has an active session."""
         return self._session_active
 
-    def start_session(self, physical_reading: float, unit: str = ENERGY_INTERNAL_UNIT) -> None:
-        """Begin a new accumulation session from the current physical reading."""
-        reading_kwh = _to_kwh(physical_reading, unit)
-        if reading_kwh is None:
-            return
+    @property
+    def unit(self) -> str | None:
+        """The unit of measurement locked for this accumulator."""
+        return self._unit
 
-        if reading_kwh == 0.0:
+    def start_session(self, physical_reading: float, unit: str) -> bool:
+        """Begin a new accumulation session from the current physical reading.
+
+        Returns False and logs an error if the unit conflicts with a
+        previously stored unit.
+        """
+        if self._unit is not None and unit != self._unit:
+            _LOGGER.error(
+                "Unit mismatch: accumulator has '%s' but source reports '%s'. "
+                "Delete and recreate the role to change units",
+                self._unit,
+                unit,
+            )
+            return False
+
+        self._unit = unit
+
+        if physical_reading == 0.0:
             # Device may be reporting an unstable initial value
             self._session_active = True
             self._awaiting_stable_start = True
             self._session_start = None
             self._last_physical = None
-            return
+            return True
 
-        self._session_start = reading_kwh
-        self._last_physical = reading_kwh
+        self._session_start = physical_reading
+        self._last_physical = physical_reading
         self._session_active = True
         self._awaiting_stable_start = False
+        return True
 
-    def update(self, physical_reading: float | None, unit: str = ENERGY_INTERNAL_UNIT) -> None:
-        """Process a new reading from the physical energy sensor."""
+    def update(self, physical_reading: float | None) -> None:
+        """Process a new reading from the physical sensor."""
         if not self._session_active:
             return
 
         if physical_reading is None:
             return
 
-        reading_kwh = _to_kwh(physical_reading, unit)
-        if reading_kwh is None:
-            return
-
         # Handle deferred session start (initial zero instability)
         if self._awaiting_stable_start:
-            if reading_kwh == 0.0:
+            if physical_reading == 0.0:
                 return
-            self._session_start = reading_kwh
-            self._last_physical = reading_kwh
+            self._session_start = physical_reading
+            self._last_physical = physical_reading
             self._awaiting_stable_start = False
             return
 
-        # Reset detection: large drop indicates device reset
-        if self._last_physical is not None and reading_kwh < self._last_physical:
-            drop = self._last_physical - reading_kwh
-            if drop > ENERGY_RESET_THRESHOLD:
-                # Commit current session, start fresh from the reset value
+        # Reset detection: drop exceeding the threshold fraction
+        if self._last_physical is not None and physical_reading < self._last_physical:
+            drop_fraction = (
+                (self._last_physical - physical_reading) / self._last_physical
+                if self._last_physical > 0
+                else 1.0
+            )
+            if drop_fraction > RESET_DROP_FRACTION:
                 self._commit_current_delta()
-                self._session_start = reading_kwh
-                self._last_physical = reading_kwh
+                self._session_start = physical_reading
+                self._last_physical = physical_reading
                 return
             else:
                 # Small jitter — ignore
                 return
 
-        self._last_physical = reading_kwh
+        self._last_physical = physical_reading
 
     def commit_session(self) -> None:
         """Commit the current session's delta to the historical sum."""
@@ -130,10 +136,11 @@ class EnergyAccumulator:
             "last_physical": self._last_physical,
             "session_active": self._session_active,
             "awaiting_stable_start": self._awaiting_stable_start,
+            "unit": self._unit,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> EnergyAccumulator:
+    def from_dict(cls, data: dict) -> SessionAccumulator:
         """Restore accumulator state from persistent storage."""
         acc = cls()
         acc._historical_sum = data.get("historical_sum", 0.0)
@@ -141,4 +148,5 @@ class EnergyAccumulator:
         acc._last_physical = data.get("last_physical")
         acc._session_active = data.get("session_active", False)
         acc._awaiting_stable_start = data.get("awaiting_stable_start", False)
+        acc._unit = data.get("unit")
         return acc
