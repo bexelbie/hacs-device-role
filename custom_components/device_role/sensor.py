@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfEnergy
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 
@@ -173,6 +174,18 @@ class RoleMeasurementSensor(SensorEntity):
         if not self._active:
             return
 
+        # Copy display precision from the source entity
+        entity_reg = er.async_get(self.hass)
+        source_entry = entity_reg.async_get(self._source_entity_id)
+        if source_entry:
+            sensor_opts = source_entry.options.get("sensor", {})
+            precision = sensor_opts.get(
+                "display_precision",
+                sensor_opts.get("suggested_display_precision"),
+            )
+            if precision is not None:
+                self._attr_suggested_display_precision = precision
+
         # Set initial value from current source state
         self._update_from_source()
 
@@ -282,6 +295,7 @@ class RoleEnergySensor(SensorEntity):
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_suggested_display_precision = 3
 
     def __init__(
         self,

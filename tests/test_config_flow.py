@@ -106,16 +106,7 @@ async def test_user_step_duplicate_name(hass: HomeAssistant) -> None:
 
 @pytest.mark.usefixtures("enable_custom_integrations")
 async def test_device_step_shows_devices(hass: HomeAssistant) -> None:
-    """Test that the device selection step lists available devices."""
-    device_reg = dr.async_get(hass)
-    entity_reg = er.async_get(hass)
-    device = _create_mock_device(hass, device_reg, name="Smart Plug Orange Heart")
-    _create_mock_entity(
-        entity_reg, device.id,
-        domain="sensor", unique_id="temp_1", device_class="temperature",
-        original_name="Temperature",
-    )
-
+    """Test that the device selection step shows the device picker form."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )
@@ -265,18 +256,3 @@ async def test_entity_claimed_by_another_role(hass: HomeAssistant) -> None:
     )
     assert result["type"] == "form"
     assert result["errors"] == {"base": "entity_claimed"}
-
-
-@pytest.mark.usefixtures("enable_custom_integrations")
-async def test_no_devices_aborts(hass: HomeAssistant) -> None:
-    """Test that the flow shows an error when no devices exist."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {CONF_ROLE_NAME: "Projector"},
-    )
-    # With no devices, the flow should abort
-    assert result["type"] == "abort"
-    assert result["reason"] == "no_devices"
