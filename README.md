@@ -108,7 +108,7 @@ From there you can:
 
 - **Toggle active / inactive**  
   - Active: role entities track the physical device.  
-  - Inactive: measurement and binary sensors become unavailable; energy sensors stay available at a frozen value.
+  - Inactive: measurement and binary sensors become unavailable; accumulating sensors stay available at a frozen value.
 
 - **Change which entities are mirrored**  
   - Add or remove individual entities from the backing device.  
@@ -116,7 +116,7 @@ From there you can:
 
 - **Reassign the role to a different device**  
   - Point the same role at a new physical device that has compatible entities (for example, a replacement smart plug).  
-  - For compatible energy entities, the role’s accumulated history is preserved.
+  - For compatible accumulating entities, the role’s accumulated history is preserved.
 
 ### Deleting a role
 
@@ -126,7 +126,7 @@ This removes:
 
 - The role device
 - All role entities
-- Any stored energy accumulator state for that role
+- Any stored accumulator state for that role
 
 Automations and dashboards that reference those role entities will need to be updated or removed, just like removing any other integration.
 
@@ -141,7 +141,7 @@ Automations and dashboards that reference those role entities will need to be up
 In December:
 
 - Deactivate `Projector`.
-- Create a `Christmas Lights` role assigned to the same physical plug, with its own energy slot.
+- Create a `Christmas Lights` role assigned to the same physical plug, with its own entities.
 - Point any holiday automations at `Christmas Lights`.
 
 In January:

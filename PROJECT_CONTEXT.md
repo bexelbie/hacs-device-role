@@ -29,8 +29,8 @@ pytest tests/test_accumulator.py -v
 - **One config entry = one role**. Users add roles via Settings → Integrations → Add.
 - **Slot-based entity mapping**: Each mirrored entity gets a slot (e.g., `sensor_temperature`).
   Slot names are stable across device replacements. Role entity unique_ids = `{entry_id}_{slot}`.
-- **Energy accumulator**: Tracks deltas per session. Persisted via HA Store API.
-  Energy role entities freeze (stay available) when inactive; other types go unavailable.
+- **Accumulator**: Tracks deltas per session. Persisted via HA Store API.
+  Accumulating role entities freeze (stay available) when inactive; other types go unavailable.
 - **Physical entity references**: Stored by entity registry unique_id, not entity_id string.
   Resolved to current entity_id at runtime via `helpers.resolve_source_entity_id()`.
 

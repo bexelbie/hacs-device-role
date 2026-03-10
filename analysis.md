@@ -62,9 +62,9 @@ Not all entities behave the same way when mirrored through a role.
 
 Temperature, humidity, power (watts), voltage, air quality — these report the current state of something. A role entity for a measurement sensor simply mirrors the physical sensor's current value. When the role is disabled, the role entity becomes unavailable. When re-enabled, it starts reporting again. History shows a clean gap during the disabled period.
 
-### Cumulative Sensors (Energy)
+### Cumulative Sensors
 
-Sensors with `state_class: total_increasing` and a supported energy unit (kWh, Wh, MWh) are fundamentally different from measurement sensors. They report a cumulative total (kilowatt-hours) that only increases. The energy dashboard calculates consumption by looking at the difference between readings over time.
+Sensors with `state_class: total_increasing` are fundamentally different from measurement sensors. They report a cumulative total that only increases (energy in kWh, water in m³, gas in ft³, etc.). The energy dashboard calculates consumption by looking at the difference between readings over time.
 
 A role entity for energy cannot simply mirror the physical sensor's value. If a plug reads 100 kWh lifetime when assigned to "Projector," the projector role should show 0, not 100. If the plug later reads 110 kWh, the projector role should show 10. If the plug moves away and comes back when the physical counter reads 150 kWh, the projector role should resume at 10 — not jump to 50.
 
@@ -108,7 +108,7 @@ Reset detection needs a tolerance threshold: only treat a decrease as a true res
 
 ### Unit Mismatches When Replacing Devices
 
-If a user replaces a device that reports energy in kWh with one that reports in Wh, the accumulator's historical sum becomes incompatible with the new device's readings. The integration must either normalize all energy values to a common internal unit or prevent reassignment across incompatible units.
+If a user replaces a device that reports energy in kWh with one that reports in Wh, the accumulator's historical sum becomes incompatible with the new device's readings. The integration prevents reassignment when units do not match. The options flow rejects the change and instructs the user to delete and recreate the role.
 
 ### Non-Numeric and Unavailable States
 
