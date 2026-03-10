@@ -95,7 +95,7 @@ async def test_energy_sensor_starts_at_zero(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert role_state is not None
     assert float(role_state.state) == 0.0
 
@@ -122,7 +122,7 @@ async def test_energy_sensor_accumulates_deltas(hass: HomeAssistant) -> None:
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert float(role_state.state) == 10.0
 
 
@@ -142,7 +142,7 @@ async def test_energy_sensor_metadata(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     entity_reg = er.async_get(hass)
-    role_reg_entry = entity_reg.async_get("sensor.projector_sensor_energy")
+    role_reg_entry = entity_reg.async_get("sensor.projector_energy")
     assert role_reg_entry is not None
     assert role_reg_entry.original_device_class == "energy"
 
@@ -164,7 +164,7 @@ async def test_energy_sensor_frozen_when_inactive(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert role_state is not None
     # Energy sensors should remain available but frozen, not unavailable
     assert role_state.state != STATE_UNAVAILABLE
@@ -197,7 +197,7 @@ async def test_energy_sensor_preserves_session_across_restart(
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert float(role_state.state) == 10.0
 
     # Simulate restart: unload preserves the active session (role still active),
@@ -217,7 +217,7 @@ async def test_energy_sensor_preserves_session_across_restart(
     await hass.async_block_till_done()
 
     # Role shows historical (0) + delta from restored session (112-100=12) = 12
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert role_state is not None
     assert float(role_state.state) == 12.0
 
@@ -228,7 +228,7 @@ async def test_energy_sensor_preserves_session_across_restart(
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert float(role_state.state) == 15.0
 
 
@@ -298,7 +298,7 @@ async def test_energy_sensor_reassignment_commits_session(
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert float(role_state.state) == 10.0
 
     # Device B: energy at 500 (much higher — different lifetime counter)
@@ -345,7 +345,7 @@ async def test_energy_sensor_reassignment_commits_session(
 
     # Role should show 10 (from device A) + 0 (fresh session on device B) = 10
     # NOT 10 + (500-100) = 410
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert role_state is not None
     assert float(role_state.state) == 10.0
 
@@ -356,7 +356,7 @@ async def test_energy_sensor_reassignment_commits_session(
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert float(role_state.state) == 13.0
 
 
@@ -375,7 +375,7 @@ async def test_energy_sensor_unit_is_kwh(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert role_state.attributes.get("unit_of_measurement") == "kWh"
 
 
@@ -402,7 +402,7 @@ async def test_energy_sensor_ignores_unsupported_unit(hass: HomeAssistant) -> No
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert float(role_state.state) == pytest.approx(10.0)
 
     # Now the source switches to an unsupported unit — should be ignored
@@ -412,7 +412,7 @@ async def test_energy_sensor_ignores_unsupported_unit(hass: HomeAssistant) -> No
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert float(role_state.state) == pytest.approx(10.0)
 
 
@@ -440,7 +440,7 @@ async def test_energy_session_committed_on_mapping_removal(
     )
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.projector_sensor_energy")
+    role_state = hass.states.get("sensor.projector_energy")
     assert float(role_state.state) == pytest.approx(10.0)
 
     # Remove the energy mapping while role stays active (simulates options flow).

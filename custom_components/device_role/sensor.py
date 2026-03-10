@@ -78,6 +78,8 @@ async def async_setup_entry(
         await store_manager.async_load()
         hass.data[DOMAIN]["store_manager"] = store_manager
 
+    entity_reg = er.async_get(hass)
+
     entities = []
     for mapping in entry.data.get(CONF_ENTITY_MAPPINGS, []):
         if mapping[CONF_DOMAIN] != "sensor":
@@ -85,6 +87,10 @@ async def async_setup_entry(
 
         device_class_str = mapping.get(CONF_DEVICE_CLASS)
         source_entity_id = resolve_source_entity_id(hass, mapping)
+
+        # Use the source entity's original name for display
+        source_reg = entity_reg.async_get(source_entity_id)
+        source_name = source_reg.original_name if source_reg else None
 
         # Check if the source is a total_increasing energy sensor
         use_accumulator = False
@@ -105,6 +111,7 @@ async def async_setup_entry(
                     role_name=role_name,
                     slot=mapping[CONF_SLOT],
                     source_entity_id=source_entity_id,
+                    source_name=source_name,
                     active=active,
                     accumulator=accumulator,
                     store_manager=store_manager,
@@ -118,6 +125,7 @@ async def async_setup_entry(
                     role_name=role_name,
                     slot=mapping[CONF_SLOT],
                     source_entity_id=source_entity_id,
+                    source_name=source_name,
                     device_class_str=device_class_str,
                     active=active,
                     via_device_id=via,
@@ -131,7 +139,7 @@ class RoleMeasurementSensor(SensorEntity):
     """A role sensor that mirrors a physical measurement sensor."""
 
     _attr_should_poll = False
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -141,6 +149,7 @@ class RoleMeasurementSensor(SensorEntity):
         source_entity_id: str,
         device_class_str: str | None,
         active: bool,
+        source_name: str | None = None,
         via_device_id: tuple | None = None,
     ) -> None:
         """Initialize the role measurement sensor."""
@@ -153,7 +162,7 @@ class RoleMeasurementSensor(SensorEntity):
         self._device_info = build_role_device_info(entry.entry_id, role_name, via_device_id)
 
         self._attr_unique_id = f"{entry.entry_id}_{slot}"
-        self._attr_name = f"{role_name} {slot}".replace("_", " ").title()
+        self._attr_name = source_name or slot.replace("_", " ").title()
 
         if device_class_str:
             try:
@@ -299,7 +308,7 @@ class RoleEnergySensor(SensorEntity):
     """A role energy sensor backed by a session accumulator."""
 
     _attr_should_poll = False
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
@@ -314,6 +323,7 @@ class RoleEnergySensor(SensorEntity):
         active: bool,
         accumulator: EnergyAccumulator,
         store_manager: AccumulatorStoreManager,
+        source_name: str | None = None,
         via_device_id: tuple | None = None,
     ) -> None:
         """Initialize the role energy sensor."""
@@ -329,7 +339,7 @@ class RoleEnergySensor(SensorEntity):
         self._device_info = build_role_device_info(entry.entry_id, role_name, via_device_id)
 
         self._attr_unique_id = f"{entry.entry_id}_{slot}"
-        self._attr_name = f"{role_name} {slot}".replace("_", " ").title()
+        self._attr_name = source_name or slot.replace("_", " ").title()
         self._attr_native_value = accumulator.role_value
 
     @property

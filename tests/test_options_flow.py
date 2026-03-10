@@ -91,7 +91,7 @@ async def test_options_flow_toggle_active(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     # Sensor should be active and mirroring
-    role_state = hass.states.get("sensor.balcony_sensor_temperature")
+    role_state = hass.states.get("sensor.balcony_temperature")
     assert role_state is not None
     assert role_state.state == "22.0"
 
@@ -109,7 +109,7 @@ async def test_options_flow_toggle_active(hass: HomeAssistant) -> None:
 
     # After options update and reload, sensor should be unavailable
     assert entry.data[CONF_ACTIVE] is False
-    role_state = hass.states.get("sensor.balcony_sensor_temperature")
+    role_state = hass.states.get("sensor.balcony_temperature")
     assert role_state is not None
     assert role_state.state == STATE_UNAVAILABLE
 
@@ -418,7 +418,7 @@ async def test_options_flow_reassign_device(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("sensor.balcony_sensor_temperature")
+    role_state = hass.states.get("sensor.balcony_temperature")
     assert role_state.state == "22.0"
 
     # Open options and request device change
@@ -448,7 +448,7 @@ async def test_options_flow_reassign_device(hass: HomeAssistant) -> None:
 
     # Role should now mirror device B
     assert entry.data[CONF_DEVICE_ID] == device_b.id
-    role_state = hass.states.get("sensor.balcony_sensor_temperature")
+    role_state = hass.states.get("sensor.balcony_temperature")
     assert role_state is not None
     assert role_state.state == "18.0"
 

@@ -90,7 +90,7 @@ async def test_binary_sensor_mirrors_state(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("binary_sensor.front_door_binary_sensor_door")
+    role_state = hass.states.get("binary_sensor.front_door_door")
     assert role_state is not None
     assert role_state.state == STATE_ON
 
@@ -107,12 +107,12 @@ async def test_binary_sensor_tracks_changes(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert hass.states.get("binary_sensor.front_door_binary_sensor_door").state == STATE_OFF
+    assert hass.states.get("binary_sensor.front_door_door").state == STATE_OFF
 
     hass.states.async_set(entity_entry.entity_id, STATE_ON)
     await hass.async_block_till_done()
 
-    assert hass.states.get("binary_sensor.front_door_binary_sensor_door").state == STATE_ON
+    assert hass.states.get("binary_sensor.front_door_door").state == STATE_ON
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -129,7 +129,7 @@ async def test_binary_sensor_inactive_unavailable(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    role_state = hass.states.get("binary_sensor.front_door_binary_sensor_door")
+    role_state = hass.states.get("binary_sensor.front_door_door")
     assert role_state is not None
     assert role_state.state == STATE_UNAVAILABLE
 
@@ -147,6 +147,6 @@ async def test_binary_sensor_metadata(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     entity_reg = er.async_get(hass)
-    role_reg_entry = entity_reg.async_get("binary_sensor.front_door_binary_sensor_door")
+    role_reg_entry = entity_reg.async_get("binary_sensor.front_door_door")
     assert role_reg_entry is not None
     assert role_reg_entry.original_device_class == "door"

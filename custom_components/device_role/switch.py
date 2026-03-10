@@ -15,6 +15,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import (
@@ -40,6 +41,7 @@ async def async_setup_entry(
     role_name = entry.data[CONF_ROLE_NAME]
     active = entry.data.get(CONF_ACTIVE, True)
     via = resolve_via_device(hass, entry.data.get("device_id", ""))
+    entity_reg = er.async_get(hass)
 
     entities = []
     for mapping in entry.data.get(CONF_ENTITY_MAPPINGS, []):
@@ -47,6 +49,8 @@ async def async_setup_entry(
             continue
 
         source_entity_id = resolve_source_entity_id(hass, mapping)
+        source_reg = entity_reg.async_get(source_entity_id)
+        source_name = source_reg.original_name if source_reg else None
 
         entities.append(
             RoleSwitch(
@@ -55,6 +59,7 @@ async def async_setup_entry(
                 slot=mapping[CONF_SLOT],
                 source_entity_id=source_entity_id,
                 active=active,
+                source_name=source_name,
                 via_device_id=via,
             )
         )
@@ -66,7 +71,7 @@ class RoleSwitch(SwitchEntity):
     """A role switch that mirrors state and forwards commands."""
 
     _attr_should_poll = False
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -75,6 +80,7 @@ class RoleSwitch(SwitchEntity):
         slot: str,
         source_entity_id: str,
         active: bool,
+        source_name: str | None = None,
         via_device_id: tuple | None = None,
     ) -> None:
         """Initialize the role switch."""
@@ -87,7 +93,7 @@ class RoleSwitch(SwitchEntity):
         self._device_info = build_role_device_info(entry.entry_id, role_name, via_device_id)
 
         self._attr_unique_id = f"{entry.entry_id}_{slot}"
-        self._attr_name = f"{role_name} {slot}".replace("_", " ").title()
+        self._attr_name = source_name or slot.replace("_", " ").title()
 
     @property
     def device_info(self):
