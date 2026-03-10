@@ -140,10 +140,12 @@ def discover_fake_device_ids(config_dir: str | Path, entry_id: str) -> dict:
     entities = {}
     for entity in entity_reg.get("data", {}).get("entities", []):
         if entity.get("device_id") == device_id:
+            capabilities = entity.get("capabilities") or {}
             entities[entity["entity_id"]] = {
                 "unique_id": entity["unique_id"],
                 "domain": entity["entity_id"].split(".")[0],
                 "device_class": entity.get("original_device_class"),
+                "state_class": capabilities.get("state_class"),
             }
 
     return {"device_id": device_id, "entities": entities}

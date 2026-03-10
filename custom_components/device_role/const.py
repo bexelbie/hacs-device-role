@@ -22,6 +22,7 @@ CONF_SOURCE_UNIQUE_ID = "source_unique_id"
 CONF_SOURCE_ENTITY_ID = "source_entity_id"
 CONF_DOMAIN = "domain"
 CONF_DEVICE_CLASS = "device_class"
+CONF_STATE_CLASS = "state_class"
 
 # Accumulator defaults
 RESET_DROP_FRACTION = 0.1  # Drops > 10% of last reading treated as device reset

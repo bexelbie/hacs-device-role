@@ -25,11 +25,24 @@ from .const import (
     CONF_SLOT,
     CONF_SOURCE_ENTITY_ID,
     CONF_SOURCE_UNIQUE_ID,
+    CONF_STATE_CLASS,
     DOMAIN,
     PLATFORMS,
 )
 
 SUPPORTED_DOMAINS = set(PLATFORMS)
+
+
+def _get_state_class(reg_entry: er.RegistryEntry, hass) -> str | None:
+    """Extract state_class from entity registry capabilities or live state."""
+    if reg_entry.capabilities:
+        sc = reg_entry.capabilities.get("state_class")
+        if sc is not None:
+            return sc
+    source_state = hass.states.get(reg_entry.entity_id)
+    if source_state:
+        return source_state.attributes.get("state_class")
+    return None
 
 
 def _build_slot_name(domain: str, device_class: str | None) -> str:
@@ -179,6 +192,7 @@ class DeviceRoleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_SOURCE_ENTITY_ID: entry.entity_id,
                             CONF_DOMAIN: entry.domain,
                             CONF_DEVICE_CLASS: entry.original_device_class,
+                            CONF_STATE_CLASS: _get_state_class(entry, self.hass),
                         }
                     )
                 mappings = _deduplicate_slots(mappings)
@@ -300,6 +314,9 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
                                 CONF_SOURCE_ENTITY_ID: entry.entity_id,
                                 CONF_DOMAIN: entry.domain,
                                 CONF_DEVICE_CLASS: entry.original_device_class,
+                                CONF_STATE_CLASS: _get_state_class(
+                                    entry, self.hass
+                                ),
                             }
                         )
 
@@ -412,6 +429,7 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
                             CONF_SOURCE_ENTITY_ID: entry.entity_id,
                             CONF_DOMAIN: entry.domain,
                             CONF_DEVICE_CLASS: entry.original_device_class,
+                            CONF_STATE_CLASS: _get_state_class(entry, self.hass),
                         }
                     )
                 new_mappings = _deduplicate_slots(new_mappings)

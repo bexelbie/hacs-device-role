@@ -25,6 +25,7 @@ from .const import (
     CONF_ROLE_NAME,
     CONF_SLOT,
     CONF_SOURCE_ENTITY_ID,
+    CONF_STATE_CLASS,
     DOMAIN,
     STORAGE_KEY,
     STORAGE_SAVE_INTERVAL,
@@ -66,16 +67,22 @@ async def async_setup_entry(
         source_reg = entity_reg.async_get(source_entity_id)
         source_name = source_reg.original_name if source_reg else None
 
-        # Detect state_class and unit from the source entity
-        use_accumulator = False
+        # Detect state_class from entity registry (persisted across reboots),
+        # config mapping, or live state. This avoids a race where the source
+        # entity's state isn't available yet at setup time.
         source_state_class = None
+        if source_reg and source_reg.capabilities:
+            source_state_class = source_reg.capabilities.get("state_class")
+        if source_state_class is None:
+            source_state_class = mapping.get(CONF_STATE_CLASS)
         source_uom = ""
         source_state = hass.states.get(source_entity_id)
         if source_state is not None:
-            source_state_class = source_state.attributes.get("state_class")
+            if source_state_class is None:
+                source_state_class = source_state.attributes.get("state_class")
             source_uom = source_state.attributes.get("unit_of_measurement", "")
-            if source_state_class == "total_increasing":
-                use_accumulator = True
+
+        use_accumulator = source_state_class == "total_increasing"
 
         if use_accumulator:
             acc_key = f"{entry.entry_id}_{mapping[CONF_SLOT]}"
@@ -413,6 +420,9 @@ class RoleAccumulatingSensor(SensorEntity):
         if not self._accumulator.start_session(reading, unit=unit):
             return
         self._session_initialized = True
+        # Set unit now in case it wasn't available at init time
+        if unit and not self._attr_native_unit_of_measurement:
+            self._attr_native_unit_of_measurement = unit
 
     @callback
     def _update_from_current_source(self) -> None:

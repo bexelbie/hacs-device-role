@@ -76,74 +76,70 @@ def test_deactivate_commit_survives_restart(ha_client, ha_bootstrap, restart_ha)
         f"Energy should increase: was {baseline}, now {pre_deactivate}"
     )
 
-    # Deactivate the role by updating config entry storage and restarting.
-    # This simulates what the options flow does: set active=False + reload.
     config_dir = ha_bootstrap["config_dir"]
 
-    # Stop to safely modify .storage/
-    _docker("stop", CONTAINER_NAME)
+    def _reactivate_role():
+        """Re-activate the role so subsequent tests aren't broken."""
+        _docker("stop", CONTAINER_NAME)
+        _docker(
+            "run", "--rm",
+            "-v", f"{config_dir}:/config",
+            HA_IMAGE,
+            "bash", "-c", "chmod -R a+rw /config/.storage",
+        )
+        entries = read_storage_file(config_dir, "core.config_entries")
+        for e in entries["data"]["entries"]:
+            if e["entry_id"] == "device_role_e2e":
+                e["data"]["active"] = True
+        write_storage_file(config_dir, "core.config_entries", entries)
+        _docker("start", CONTAINER_NAME)
+        cleanup_client = HAClient(HA_URL)
+        try:
+            cleanup_client.wait_for_ready(timeout=120)
+            cleanup_client.onboard_and_authenticate()
+        finally:
+            cleanup_client.close()
 
-    # Fix permissions before editing (HA writes as root)
-    _docker(
-        "run", "--rm",
-        "-v", f"{config_dir}:/config",
-        HA_IMAGE,
-        "bash", "-c", "chmod -R a+rw /config/.storage",
-    )
-
-    config_entries = read_storage_file(config_dir, "core.config_entries")
-    for entry in config_entries["data"]["entries"]:
-        if entry["entry_id"] == "device_role_e2e":
-            entry["data"]["active"] = False
-    write_storage_file(config_dir, "core.config_entries", config_entries)
-
-    _docker("start", CONTAINER_NAME)
-    client = HAClient(HA_URL)
     try:
-        client.wait_for_ready(timeout=120)
-        client.onboard_and_authenticate()
+        # Deactivate the role by updating config entry storage and restarting.
+        _docker("stop", CONTAINER_NAME)
+        _docker(
+            "run", "--rm",
+            "-v", f"{config_dir}:/config",
+            HA_IMAGE,
+            "bash", "-c", "chmod -R a+rw /config/.storage",
+        )
+        config_entries = read_storage_file(config_dir, "core.config_entries")
+        for entry in config_entries["data"]["entries"]:
+            if entry["entry_id"] == "device_role_e2e":
+                entry["data"]["active"] = False
+        write_storage_file(config_dir, "core.config_entries", config_entries)
 
-        # Energy sensor should be frozen (available but not updating).
-        # The committed value is the role_value at deactivation time.
-        # On restart with active=False, the accumulator loads saved state
-        # and commit_session() is called during entity removal/reload.
-        # We verify it's a reasonable non-zero value (exact math depends
-        # on session_start from earlier tests, which varies).
-        state = client.get_state("sensor.e2e_role_energy")
+        _docker("start", CONTAINER_NAME)
+        client = HAClient(HA_URL)
+        try:
+            client.wait_for_ready(timeout=120)
+            client.onboard_and_authenticate()
+
+            # Energy sensor should be frozen (available but not updating).
+            state = client.get_state("sensor.e2e_role_energy")
+            assert state is not None
+            frozen_value = float(state["state"])
+            assert frozen_value > 0.0, (
+                f"Frozen energy should be positive, got {frozen_value}"
+            )
+        finally:
+            client.close()
+
+        # Restart again to verify committed value persists
+        restart_ha()
+
+        state = ha_client.get_state("sensor.e2e_role_energy")
         assert state is not None
-        frozen_value = float(state["state"])
-        assert frozen_value > 0.0, f"Frozen energy should be positive, got {frozen_value}"
+        after_restart = float(state["state"])
+        assert after_restart == frozen_value, (
+            f"Energy should be frozen at {frozen_value} after restart, "
+            f"got {after_restart}"
+        )
     finally:
-        client.close()
-
-    # Restart again to verify committed value persists
-    restart_ha()
-
-    state = ha_client.get_state("sensor.e2e_role_energy")
-    assert state is not None
-    after_restart = float(state["state"])
-    assert after_restart == frozen_value, (
-        f"Energy should be frozen at {frozen_value} after restart, got {after_restart}"
-    )
-
-    # Re-activate the role so subsequent tests (smoke tests) aren't broken
-    _docker("stop", CONTAINER_NAME)
-    _docker(
-        "run", "--rm",
-        "-v", f"{config_dir}:/config",
-        HA_IMAGE,
-        "bash", "-c", "chmod -R a+rw /config/.storage",
-    )
-    config_entries = read_storage_file(config_dir, "core.config_entries")
-    for entry in config_entries["data"]["entries"]:
-        if entry["entry_id"] == "device_role_e2e":
-            entry["data"]["active"] = True
-    write_storage_file(config_dir, "core.config_entries", config_entries)
-    _docker("start", CONTAINER_NAME)
-
-    cleanup_client = HAClient(HA_URL)
-    try:
-        cleanup_client.wait_for_ready(timeout=120)
-        cleanup_client.onboard_and_authenticate()
-    finally:
-        cleanup_client.close()
+        _reactivate_role()

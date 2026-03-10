@@ -117,6 +117,7 @@ def _build_entity_mappings(entities: dict) -> list[dict]:
             "source_entity_id": entity_id,
             "domain": domain,
             "device_class": device_class,
+            "state_class": info.get("state_class"),
         })
     return mappings
 
