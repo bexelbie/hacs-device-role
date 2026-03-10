@@ -216,10 +216,12 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
         device_id = self._config_entry.data.get(CONF_DEVICE_ID)
         entity_reg = er.async_get(self.hass)
 
-        # Look up device name for display
+        # Look up device name for display, preferring user-assigned name
         device_reg = dr.async_get(self.hass)
         device = device_reg.async_get(device_id) if device_id else None
-        device_name = device.name if device else "Unknown device"
+        device_name = (
+            (device.name_by_user or device.name) if device else "Unknown device"
+        )
 
         # Get eligible entities from the device
         device_entities = er.async_entries_for_device(
