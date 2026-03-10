@@ -385,6 +385,11 @@ class RoleAccumulatingSensor(SensorEntity):
         except (ValueError, TypeError):
             return
 
+        # Reject updates where the source unit changed mid-session
+        current_unit = source_state.attributes.get("unit_of_measurement", "")
+        if self._accumulator.unit and current_unit != self._accumulator.unit:
+            return
+
         self._accumulator.update(reading)
         self._attr_native_value = self._accumulator.role_value
         self._store_manager.schedule_save()
@@ -421,6 +426,11 @@ class RoleAccumulatingSensor(SensorEntity):
         try:
             reading = float(source_state.state)
         except (ValueError, TypeError):
+            return
+
+        # Reject updates where the source unit changed mid-session
+        current_unit = source_state.attributes.get("unit_of_measurement", "")
+        if self._accumulator.unit and current_unit != self._accumulator.unit:
             return
 
         self._accumulator.update(reading)
