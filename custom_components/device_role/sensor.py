@@ -34,27 +34,6 @@ from .helpers import build_role_device_info, resolve_source_entity_id, resolve_v
 
 _LOGGER = logging.getLogger(__name__)
 
-# Measurement device classes that should use SensorStateClass.MEASUREMENT
-MEASUREMENT_DEVICE_CLASSES = {
-    SensorDeviceClass.TEMPERATURE,
-    SensorDeviceClass.HUMIDITY,
-    SensorDeviceClass.POWER,
-    SensorDeviceClass.VOLTAGE,
-    SensorDeviceClass.CURRENT,
-    SensorDeviceClass.PRESSURE,
-    SensorDeviceClass.ILLUMINANCE,
-    SensorDeviceClass.SIGNAL_STRENGTH,
-    SensorDeviceClass.PM25,
-    SensorDeviceClass.PM10,
-    SensorDeviceClass.CO2,
-    SensorDeviceClass.CO,
-    SensorDeviceClass.NITROGEN_DIOXIDE,
-    SensorDeviceClass.VOLATILE_ORGANIC_COMPOUNDS,
-    SensorDeviceClass.FREQUENCY,
-    SensorDeviceClass.SPEED,
-    SensorDeviceClass.WIND_SPEED,
-}
-
 # Energy device classes handled by the accumulator (Phase 6/7)
 ENERGY_DEVICE_CLASSES = {
     SensorDeviceClass.ENERGY,
@@ -92,13 +71,14 @@ async def async_setup_entry(
         source_reg = entity_reg.async_get(source_entity_id)
         source_name = source_reg.original_name if source_reg else None
 
-        # Check if the source is a total_increasing energy sensor
+        # Detect state_class and unit from the source entity
         use_accumulator = False
+        source_state_class = None
         source_state = hass.states.get(source_entity_id)
         if source_state is not None:
-            state_class = source_state.attributes.get("state_class")
+            source_state_class = source_state.attributes.get("state_class")
             source_uom = source_state.attributes.get("unit_of_measurement", "")
-            if state_class == "total_increasing" and source_uom in _ENERGY_UNIT_MAP:
+            if source_state_class == "total_increasing" and source_uom in _ENERGY_UNIT_MAP:
                 use_accumulator = True
 
         if use_accumulator:
@@ -127,6 +107,7 @@ async def async_setup_entry(
                     source_entity_id=source_entity_id,
                     source_name=source_name,
                     device_class_str=device_class_str,
+                    state_class_str=source_state_class,
                     active=active,
                     via_device_id=via,
                 )
@@ -150,6 +131,7 @@ class RoleMeasurementSensor(SensorEntity):
         device_class_str: str | None,
         active: bool,
         source_name: str | None = None,
+        state_class_str: str | None = None,
         via_device_id: tuple | None = None,
     ) -> None:
         """Initialize the role measurement sensor."""
@@ -172,9 +154,11 @@ class RoleMeasurementSensor(SensorEntity):
         else:
             self._attr_device_class = None
 
-        # Measurement sensors use MEASUREMENT state class
-        if self._attr_device_class in MEASUREMENT_DEVICE_CLASSES:
-            self._attr_state_class = SensorStateClass.MEASUREMENT
+        if state_class_str:
+            try:
+                self._attr_state_class = SensorStateClass(state_class_str)
+            except ValueError:
+                pass
 
     @property
     def device_info(self):

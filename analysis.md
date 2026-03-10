@@ -64,7 +64,7 @@ Temperature, humidity, power (watts), voltage, air quality — these report the 
 
 ### Cumulative Sensors (Energy)
 
-Energy sensors are fundamentally different. They report a cumulative total (kilowatt-hours) that only increases. The energy dashboard calculates consumption by looking at the difference between readings over time.
+Sensors with `state_class: total_increasing` and a supported energy unit (kWh, Wh, MWh) are fundamentally different from measurement sensors. They report a cumulative total (kilowatt-hours) that only increases. The energy dashboard calculates consumption by looking at the difference between readings over time.
 
 A role entity for energy cannot simply mirror the physical sensor's value. If a plug reads 100 kWh lifetime when assigned to "Projector," the projector role should show 0, not 100. If the plug later reads 110 kWh, the projector role should show 10. If the plug moves away and comes back when the physical counter reads 150 kWh, the projector role should resume at 10 — not jump to 50.
 
@@ -175,8 +175,6 @@ The following Home Assistant APIs and patterns support this integration:
 - **HA storage API** (`.storage` with `async_delay_save`) provides persistent storage that survives restarts while throttling writes for SD card longevity.
 
 - **Device registry** allows creating logical devices (one per role) that appear in the UI with area assignment and entity grouping.
-
-The architectural pattern is proven by existing HACS integrations like Battery Notes, which attaches supplementary entities and metadata to existing physical devices without modifying those devices.
 
 Role entity IDs use standard Home Assistant domains (`sensor.projector_energy`, `switch.projector`) rather than a custom domain, ensuring compatibility with all parts of Home Assistant that expect standard entity ID formats.
 

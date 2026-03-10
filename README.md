@@ -30,12 +30,16 @@ Physical device  ──state changes──▶  Role entity  ──▶  Dashboard
 1. **Create a role** — give it a name and select a physical device.
 2. **Pick which entities to mirror** — temperature, power, energy, switch, etc.
 3. Role entities appear with stable IDs derived from the role name.
+   Entity names match the source device (e.g. "Summation Delivered",
+   not a generated name).  The role's device page links back to the
+   physical device via "Connected via".
 4. When the physical device changes, **update the mapping** in the role's
    options.  Everything downstream keeps working.
 
 ### Energy accumulator
 
-Energy sensors get special treatment.  A naive mirror would show the
+Sensors with `state_class: total_increasing` and a supported energy unit
+(kWh, Wh, MWh) get special treatment.  A naive mirror would show the
 lifetime kWh of whichever physical meter is currently attached.  Instead,
 Device Role tracks a **session-based accumulator**:
 
@@ -57,7 +61,8 @@ treating measurement jitter as a reset.
 | Domain | Behavior | When role is inactive |
 |--------|----------|-----------------------|
 | `sensor` (measurement) | Mirrors state, device class, unit | Unavailable |
-| `sensor` (energy) | Accumulates via session tracker | **Frozen** (stays available) |
+| `sensor` (`total_increasing` with energy unit) | Accumulates via session tracker | **Frozen** (stays available) |
+| `sensor` (all other) | Mirrors state, device class, unit | Unavailable |
 | `binary_sensor` | Mirrors state and device class | Unavailable |
 | `switch` | Mirrors state; forwards `turn_on`/`turn_off` | Unavailable |
 
@@ -113,10 +118,11 @@ all its entities, and purges any stored energy accumulator data.
 ### Does reassignment preserve energy history?
 
 Energy history is tied to **slot names** (e.g. `sensor_energy`), which are
-derived from the entity's domain and device class.  If you reassign a role
-from one device to another and both devices have an energy sensor with the
-same device class, the slot name stays the same and accumulated energy
-carries forward seamlessly.
+derived from the entity's domain and device class.  The accumulator is used
+for any source sensor with `state_class: total_increasing` and a supported
+energy unit (kWh, Wh, MWh).  If you reassign a role from one device to
+another and both devices have such a sensor with the same device class, the
+slot name stays the same and accumulated energy carries forward seamlessly.
 
 If the replacement device has a different set of entity types (e.g. the
 old device had an energy sensor but the new one doesn't), the old slot's

@@ -130,7 +130,10 @@ async def test_measurement_sensor_metadata(hass: HomeAssistant) -> None:
     """Test that role sensor copies device_class and state_class from source."""
     device, entity_entry = _setup_physical_device(hass)
 
-    hass.states.async_set(entity_entry.entity_id, "22.0")
+    hass.states.async_set(
+        entity_entry.entity_id, "22.0",
+        {"state_class": "measurement"},
+    )
 
     entry = _make_role_entry(device.id, entity_entry.unique_id, entity_entry.entity_id)
     entry.add_to_hass(hass)
@@ -141,6 +144,7 @@ async def test_measurement_sensor_metadata(hass: HomeAssistant) -> None:
     role_entity_id = f"sensor.balcony_temperature"
     role_state = hass.states.get(role_entity_id)
     assert role_state is not None
+    assert role_state.attributes.get("state_class") == "measurement"
 
     # Check entity registry for metadata
     entity_reg = er.async_get(hass)
