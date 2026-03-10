@@ -64,8 +64,6 @@ Accumulating sensors (any sensor with `state_class: total_increasing`) are the o
 - When you reactivate the role (with the same or a different compatible device), the sensor resumes from that held value and ignores whatever the device did in between.
 - This works for energy (kWh), water (m³), gas (ft³), and any other cumulative sensor.
 
-If you care about the internal accumulator math and edge cases, see the design notes in [analysis.md](analysis.md).
-
 ## Installation
 
 ### HACS (recommended)
@@ -166,7 +164,6 @@ Result:
 
 - Balcony history stops cleanly when you moved the sensor.
 - Basement history starts fresh.
-- You do not get −18 °C on the balcony because you temporarily put the sensor in the freezer.
 
 ### Replacing a dead device
 
@@ -180,23 +177,18 @@ Result:
   - Only `sensor`, `binary_sensor`, and `switch` are supported today.  
   - Lights, covers, climate, and more complex domains are not mirrored yet.
 
-- **One active role per physical accumulating entity**  
-  - A physical `total_increasing` sensor can back at most one active role at a time. This avoids double-counting the same consumption into multiple roles.
-
-- **Untracked consumption when no role is active**  
-  - If a device is consuming resources while no role is active for its accumulating entity, that consumption is not attributed to any role. This is intentional: the role means “I care about tracking this use.”
+- **One active role per physical device entity**  
+  - A physical entity can only be assigned to a single active role at a time.
 
 - **Unit compatibility on reassignment**  
-  - The options flow will reject reassignment to a device that reports a different unit for an accumulating sensor (e.g., kWh → Wh, or kWh → gal). To change units, delete and recreate the role. A future version may offer unit conversion during reassignment.
+  - The options flow will reject reassignment to a device that reports a different unit for an accumulating sensor (e.g., kWh → Wh, or kWh → gal). To change units, delete and recreate the role.
 
 - **No pre-seeding of accumulator values**  
-  - New roles always start their accumulators at zero. If you’re replacing a role and know the prior accumulated value, there is currently no way to enter it. This may be addressed in a future version.
+  - New roles always start their accumulators at zero.
 
 - **Recorder and storage**  
   - By default both the physical entity and the role entity are recorded.  
   - If you want to save space, you can exclude the physical entities from the recorder in Home Assistant’s settings.
-
-For deeper technical notes, see [analysis.md](analysis.md).
 
 ## Requirements
 
@@ -223,12 +215,6 @@ If you remove the integration:
 - Any automations, dashboards, or energy dashboard configuration that reference role entities will break in the same way they would if you removed any other integration.
 
 You can always reinstall Device Role later, but the role entities will be recreated fresh.
-
-## Design notes and contributing
-
-If you want to understand **why** Device Role works the way it does, or you’re interested in contributing, see:
-
-- [analysis.md](analysis.md) — problem analysis, design choices, and implementation notes.
 
 ## License
 
