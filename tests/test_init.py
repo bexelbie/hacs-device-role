@@ -69,3 +69,31 @@ async def test_shutdown_saves_accumulators(
     await hass.async_block_till_done()
 
     assert save_called
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_remove_entry_purges_accumulators(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test that deleting a config entry purges its accumulator data."""
+    mock_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    store_manager = hass.data[DOMAIN]["store_manager"]
+    # Seed an accumulator for this entry
+    acc = store_manager.get_or_create(f"{mock_config_entry.entry_id}_sensor_energy")
+    acc.update(1.0, "kWh")
+
+    # Also seed one for a different entry to confirm it's not removed
+    other_acc = store_manager.get_or_create("other_entry_sensor_energy")
+    other_acc.update(2.0, "kWh")
+
+    await hass.config_entries.async_remove(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # The entry's accumulator should be gone
+    assert f"{mock_config_entry.entry_id}_sensor_energy" not in store_manager._accumulators
+    # The other entry's accumulator should remain
+    assert "other_entry_sensor_energy" in store_manager._accumulators

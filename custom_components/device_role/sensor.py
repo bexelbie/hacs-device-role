@@ -29,7 +29,7 @@ from .const import (
     STORAGE_SAVE_INTERVAL,
     STORAGE_VERSION,
 )
-from .helpers import resolve_source_entity_id
+from .helpers import build_role_device_info, resolve_source_entity_id, resolve_via_device
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +68,7 @@ async def async_setup_entry(
     """Set up device role sensor entities from a config entry."""
     role_name = entry.data[CONF_ROLE_NAME]
     active = entry.data.get(CONF_ACTIVE, True)
+    via = resolve_via_device(hass, entry.data.get("device_id", ""))
 
     # Use the shared store manager from __init__.py
     store_manager = hass.data[DOMAIN].get("store_manager")
@@ -98,6 +99,7 @@ async def async_setup_entry(
                     active=active,
                     accumulator=accumulator,
                     store_manager=store_manager,
+                    via_device_id=via,
                 )
             )
         else:
@@ -109,6 +111,7 @@ async def async_setup_entry(
                     source_entity_id=source_entity_id,
                     device_class_str=device_class_str,
                     active=active,
+                    via_device_id=via,
                 )
             )
 
@@ -129,6 +132,7 @@ class RoleMeasurementSensor(SensorEntity):
         source_entity_id: str,
         device_class_str: str | None,
         active: bool,
+        via_device_id: tuple | None = None,
     ) -> None:
         """Initialize the role measurement sensor."""
         self._entry = entry
@@ -137,6 +141,7 @@ class RoleMeasurementSensor(SensorEntity):
         self._source_entity_id = source_entity_id
         self._active = active
         self._unsub_listener = None
+        self._device_info = build_role_device_info(entry.entry_id, role_name, via_device_id)
 
         self._attr_unique_id = f"{entry.entry_id}_{slot}"
         self._attr_name = f"{role_name} {slot}".replace("_", " ").title()
@@ -156,11 +161,7 @@ class RoleMeasurementSensor(SensorEntity):
     @property
     def device_info(self):
         """Return device info to group role entities under a role device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": self._role_name,
-            "manufacturer": "Device Role",
-        }
+        return self._device_info
 
     @property
     def available(self) -> bool:
@@ -240,6 +241,13 @@ class AccumulatorStoreManager:
             self._accumulators[key] = EnergyAccumulator()
         return self._accumulators[key]
 
+    def remove_by_entry(self, entry_id: str) -> None:
+        """Remove all accumulators belonging to a config entry."""
+        prefix = f"{entry_id}_"
+        keys = [k for k in self._accumulators if k.startswith(prefix)]
+        for key in keys:
+            del self._accumulators[key]
+
     def schedule_save(self) -> None:
         """Schedule a delayed save of all accumulator state."""
         self._store.async_delay_save(self._data_to_save, STORAGE_SAVE_INTERVAL)
@@ -284,6 +292,7 @@ class RoleEnergySensor(SensorEntity):
         active: bool,
         accumulator: EnergyAccumulator,
         store_manager: AccumulatorStoreManager,
+        via_device_id: tuple | None = None,
     ) -> None:
         """Initialize the role energy sensor."""
         self._entry = entry
@@ -295,6 +304,7 @@ class RoleEnergySensor(SensorEntity):
         self._store_manager = store_manager
         self._unsub_listener = None
         self._session_initialized = False
+        self._device_info = build_role_device_info(entry.entry_id, role_name, via_device_id)
 
         self._attr_unique_id = f"{entry.entry_id}_{slot}"
         self._attr_name = f"{role_name} {slot}".replace("_", " ").title()
@@ -303,11 +313,7 @@ class RoleEnergySensor(SensorEntity):
     @property
     def device_info(self):
         """Return device info to group role entities under a role device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": self._role_name,
-            "manufacturer": "Device Role",
-        }
+        return self._device_info
 
     @property
     def available(self) -> bool:

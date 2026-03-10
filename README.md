@@ -63,10 +63,20 @@ treating measurement jitter as a reset.
 
 ## Installation
 
+### HACS (recommended)
+
+1. Open HACS in your Home Assistant instance.
+2. Go to the three-dot menu → **Custom repositories**.
+3. Paste `https://github.com/bexelbie/hacs-device-role` and select category **Integration**.
+4. Click **Add**, then find "Device Role" in the HACS integration list and install it.
+5. Restart Home Assistant.
+
+HACS will notify you when new releases are available.
+
+### Manual
+
 Copy `custom_components/device_role/` into your Home Assistant
 `config/custom_components/` directory, then restart Home Assistant.
-
-> **HACS support** is planned but not yet available.
 
 ## Configuration
 
@@ -79,15 +89,23 @@ Everything is done through the UI — no YAML.
 
 ### Options
 
-After creation, open the integration entry to:
+After creation, open **Settings → Devices & Services → Device Role**, click
+the **⋮** menu on your role entry, and choose **Configure** to:
 
 - **Toggle active/inactive** — deactivates mirroring and freezes energy.
 - **Add or remove entities** — change which physical entities the role
   mirrors without losing accumulated energy or changing existing entity IDs.
+- **Reassign to a different device** — swap the physical device backing the
+  role while preserving slot-based energy history.
+
+### Deleting a role
+
+From the same **⋮** menu, choose **Delete**. This removes the role device,
+all its entities, and purges any stored energy accumulator data.
 
 ## Requirements
 
-- Home Assistant 2025.1 or later
+- Home Assistant 2026.1.0 or later
 - No external dependencies
 
 ## FAQ

@@ -10,6 +10,12 @@ from homeassistant.helpers import (
     device_registry as dr,
     entity_registry as er,
 )
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .const import (
     CONF_ACTIVE,
@@ -105,11 +111,22 @@ class DeviceRoleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_select_device(self, user_input=None):
         """Step 2: Select the physical device."""
         device_reg = dr.async_get(self.hass)
-        devices = {
-            device.id: device.name_by_user or device.name or device.id
-            for device in device_reg.devices.values()
-            if device.name or device.name_by_user
-        }
+        entity_reg = er.async_get(self.hass)
+
+        # Only show devices that have at least one entity in a supported domain
+        devices = {}
+        for device in device_reg.devices.values():
+            name = device.name_by_user or device.name
+            if not name:
+                continue
+            device_entities = er.async_entries_for_device(
+                entity_reg, device.id, include_disabled_entities=False
+            )
+            if any(e.domain in SUPPORTED_DOMAINS for e in device_entities):
+                devices[device.id] = name
+
+        # Sort by name for usability
+        devices = dict(sorted(devices.items(), key=lambda item: item[1].lower()))
 
         if not devices:
             return self.async_abort(reason="no_devices")
@@ -118,10 +135,20 @@ class DeviceRoleConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._device_id = user_input[CONF_DEVICE_ID]
             return await self.async_step_select_entities()
 
+        device_options = [
+            SelectOptionDict(value=dev_id, label=name)
+            for dev_id, name in devices.items()
+        ]
+
         return self.async_show_form(
             step_id="select_device",
             data_schema=vol.Schema(
-                {vol.Required(CONF_DEVICE_ID): vol.In(devices)}
+                {vol.Required(CONF_DEVICE_ID): SelectSelector(
+                    SelectSelectorConfig(
+                        options=device_options,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                )}
             ),
         )
 
@@ -336,20 +363,41 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
     async def async_step_select_device(self, user_input=None):
         """Select a new physical device for the role."""
         device_reg = dr.async_get(self.hass)
-        devices = {
-            device.id: device.name_by_user or device.name or device.id
-            for device in device_reg.devices.values()
-            if device.name or device.name_by_user
-        }
+        entity_reg = er.async_get(self.hass)
+
+        # Only show devices that have at least one entity in a supported domain
+        devices = {}
+        for device in device_reg.devices.values():
+            name = device.name_by_user or device.name
+            if not name:
+                continue
+            device_entities = er.async_entries_for_device(
+                entity_reg, device.id, include_disabled_entities=False
+            )
+            if any(e.domain in SUPPORTED_DOMAINS for e in device_entities):
+                devices[device.id] = name
+
+        # Sort by name for usability
+        devices = dict(sorted(devices.items(), key=lambda item: item[1].lower()))
 
         if user_input is not None:
             self._new_device_id = user_input[CONF_DEVICE_ID]
             return await self.async_step_select_entities()
 
+        device_options = [
+            SelectOptionDict(value=dev_id, label=name)
+            for dev_id, name in devices.items()
+        ]
+
         return self.async_show_form(
             step_id="select_device",
             data_schema=vol.Schema(
-                {vol.Required(CONF_DEVICE_ID): vol.In(devices)}
+                {vol.Required(CONF_DEVICE_ID): SelectSelector(
+                    SelectSelectorConfig(
+                        options=device_options,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                )}
             ),
         )
 

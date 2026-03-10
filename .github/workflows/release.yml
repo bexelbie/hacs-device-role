@@ -38,6 +38,11 @@ jobs:
           fetch-depth: 0
 
       - name: Create GitHub Release
-        run: gh release create "$GITHUB_REF_NAME" --notes-from-tag
+        run: |
+          if echo "$GITHUB_REF_NAME" | grep -q '-'; then
+            gh release create "$GITHUB_REF_NAME" --notes-from-tag --prerelease
+          else
+            gh release create "$GITHUB_REF_NAME" --notes-from-tag
+          fi
         env:
           GH_TOKEN: ${{ github.token }}

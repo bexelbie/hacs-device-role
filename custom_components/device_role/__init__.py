@@ -53,3 +53,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await store_manager.async_save_now()
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up stored data when a config entry is permanently deleted."""
+    store_manager = hass.data.get(DOMAIN, {}).get("store_manager")
+    if store_manager:
+        store_manager.remove_by_entry(entry.entry_id)
+        await store_manager.async_save_now()

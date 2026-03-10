@@ -26,7 +26,7 @@ from .const import (
     CONF_SOURCE_ENTITY_ID,
     DOMAIN,
 )
-from .helpers import resolve_source_entity_id
+from .helpers import build_role_device_info, resolve_source_entity_id, resolve_via_device
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ async def async_setup_entry(
     """Set up device role switch entities from a config entry."""
     role_name = entry.data[CONF_ROLE_NAME]
     active = entry.data.get(CONF_ACTIVE, True)
+    via = resolve_via_device(hass, entry.data.get("device_id", ""))
 
     entities = []
     for mapping in entry.data.get(CONF_ENTITY_MAPPINGS, []):
@@ -54,6 +55,7 @@ async def async_setup_entry(
                 slot=mapping[CONF_SLOT],
                 source_entity_id=source_entity_id,
                 active=active,
+                via_device_id=via,
             )
         )
 
@@ -73,6 +75,7 @@ class RoleSwitch(SwitchEntity):
         slot: str,
         source_entity_id: str,
         active: bool,
+        via_device_id: tuple | None = None,
     ) -> None:
         """Initialize the role switch."""
         self._entry = entry
@@ -81,6 +84,7 @@ class RoleSwitch(SwitchEntity):
         self._source_entity_id = source_entity_id
         self._active = active
         self._unsub_listener = None
+        self._device_info = build_role_device_info(entry.entry_id, role_name, via_device_id)
 
         self._attr_unique_id = f"{entry.entry_id}_{slot}"
         self._attr_name = f"{role_name} {slot}".replace("_", " ").title()
@@ -88,11 +92,7 @@ class RoleSwitch(SwitchEntity):
     @property
     def device_info(self):
         """Return device info to group role entities under a role device."""
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": self._role_name,
-            "manufacturer": "Device Role",
-        }
+        return self._device_info
 
     @property
     def available(self) -> bool:

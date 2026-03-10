@@ -108,7 +108,13 @@ async def test_user_step_duplicate_name(hass: HomeAssistant) -> None:
 async def test_device_step_shows_devices(hass: HomeAssistant) -> None:
     """Test that the device selection step lists available devices."""
     device_reg = dr.async_get(hass)
-    _create_mock_device(hass, device_reg, name="Smart Plug Orange Heart")
+    entity_reg = er.async_get(hass)
+    device = _create_mock_device(hass, device_reg, name="Smart Plug Orange Heart")
+    _create_mock_entity(
+        entity_reg, device.id,
+        domain="sensor", unique_id="temp_1", device_class="temperature",
+        original_name="Temperature",
+    )
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
