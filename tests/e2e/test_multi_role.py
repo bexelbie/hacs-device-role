@@ -23,13 +23,13 @@ def test_two_roles_mirror_independently(ha_client):
 
     # Verify role 1 mirrors temperature
     state = ha_client.wait_for_state(
-        "sensor.e2e_role_sensor_temperature", "33.3", timeout=15,
+        "sensor.e2e_role_temperature", "33.3", timeout=15,
     )
     assert state is not None
 
     # Verify role 2 mirrors humidity
     state = ha_client.wait_for_state(
-        "sensor.e2e_role_2_sensor_humidity", "77.7", timeout=15,
+        "sensor.e2e_role_2_humidity", "77.7", timeout=15,
     )
     assert state is not None
 
@@ -43,7 +43,7 @@ def test_source_unavailable_propagates_to_role(ha_client):
         "value": 55.0,
     })
     ha_client.wait_for_state(
-        "sensor.e2e_role_2_sensor_humidity", "55.0", timeout=15,
+        "sensor.e2e_role_2_humidity", "55.0", timeout=15,
     )
 
     # Make the source entity unavailable
@@ -54,7 +54,7 @@ def test_source_unavailable_propagates_to_role(ha_client):
 
     # Role entity should show "unknown" (entity is available but has no value)
     state = ha_client.wait_for_state(
-        "sensor.e2e_role_2_sensor_humidity", "unknown", timeout=15,
+        "sensor.e2e_role_2_humidity", "unknown", timeout=15,
     )
     assert state is not None
 
@@ -64,6 +64,6 @@ def test_source_unavailable_propagates_to_role(ha_client):
         "value": 60.0,
     })
     state = ha_client.wait_for_state(
-        "sensor.e2e_role_2_sensor_humidity", "60.0", timeout=15,
+        "sensor.e2e_role_2_humidity", "60.0", timeout=15,
     )
     assert state is not None

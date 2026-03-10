@@ -24,7 +24,7 @@ def test_role_mirrors_temperature(ha_client):
     })
 
     state = ha_client.wait_for_state(
-        "sensor.e2e_role_sensor_temperature", "25.5", timeout=15,
+        "sensor.e2e_role_temperature", "25.5", timeout=15,
     )
     assert state is not None
 
@@ -38,6 +38,6 @@ def test_role_mirrors_switch(ha_client):
     })
 
     state = ha_client.wait_for_state(
-        "switch.e2e_role_switch", "on", timeout=15,
+        "switch.e2e_role_outlet", "on", timeout=15,
     )
     assert state is not None

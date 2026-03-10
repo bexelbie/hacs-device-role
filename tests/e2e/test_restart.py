@@ -23,7 +23,7 @@ def test_energy_accumulation_survives_restart(ha_client, restart_ha):
     # session_start deferred from 0.0 to first non-zero reading (100.0),
     # so role_value = 0 + (100 - 100) = 0.0
     ha_client.wait_for_state(
-        "sensor.e2e_role_sensor_energy", "0.0", timeout=15,
+        "sensor.e2e_role_energy", "0.0", timeout=15,
     )
 
     # Accumulate 50 kWh delta
@@ -32,7 +32,7 @@ def test_energy_accumulation_survives_restart(ha_client, restart_ha):
         "value": 150.0,
     })
     state = ha_client.wait_for_state(
-        "sensor.e2e_role_sensor_energy", "50.0", timeout=15,
+        "sensor.e2e_role_energy", "50.0", timeout=15,
     )
     assert state is not None
 
@@ -50,7 +50,7 @@ def test_energy_accumulation_survives_restart(ha_client, restart_ha):
     })
 
     state = ha_client.wait_for_state(
-        "sensor.e2e_role_sensor_energy", "100.0", timeout=30,
+        "sensor.e2e_role_energy", "100.0", timeout=30,
     )
     assert state is not None
 
@@ -61,7 +61,7 @@ def test_deactivate_commit_survives_restart(ha_client, ha_bootstrap, restart_ha)
     import time
 
     # Read the current accumulated energy from prior tests
-    state = ha_client.get_state("sensor.e2e_role_sensor_energy")
+    state = ha_client.get_state("sensor.e2e_role_energy")
     baseline = float(state["state"])
 
     # Accumulate some delta on top of baseline
@@ -70,7 +70,7 @@ def test_deactivate_commit_survives_restart(ha_client, ha_bootstrap, restart_ha)
         "value": 300.0,
     })
     time.sleep(3)
-    state = ha_client.get_state("sensor.e2e_role_sensor_energy")
+    state = ha_client.get_state("sensor.e2e_role_energy")
     pre_deactivate = float(state["state"])
     assert pre_deactivate > baseline, (
         f"Energy should increase: was {baseline}, now {pre_deactivate}"
@@ -109,7 +109,7 @@ def test_deactivate_commit_survives_restart(ha_client, ha_bootstrap, restart_ha)
         # and commit_session() is called during entity removal/reload.
         # We verify it's a reasonable non-zero value (exact math depends
         # on session_start from earlier tests, which varies).
-        state = client.get_state("sensor.e2e_role_sensor_energy")
+        state = client.get_state("sensor.e2e_role_energy")
         assert state is not None
         frozen_value = float(state["state"])
         assert frozen_value > 0.0, f"Frozen energy should be positive, got {frozen_value}"
@@ -119,7 +119,7 @@ def test_deactivate_commit_survives_restart(ha_client, ha_bootstrap, restart_ha)
     # Restart again to verify committed value persists
     restart_ha()
 
-    state = ha_client.get_state("sensor.e2e_role_sensor_energy")
+    state = ha_client.get_state("sensor.e2e_role_energy")
     assert state is not None
     after_restart = float(state["state"])
     assert after_restart == frozen_value, (
