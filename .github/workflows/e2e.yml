@@ -3,6 +3,12 @@ name: E2E Tests
 on:
   pull_request:
     branches: [main]
+  workflow_call:
+    inputs:
+      ha_version:
+        description: 'HA Docker image tag (e.g., stable, 2026.1, beta, dev)'
+        default: 'stable'
+        type: string
   workflow_dispatch:
     inputs:
       ha_version:

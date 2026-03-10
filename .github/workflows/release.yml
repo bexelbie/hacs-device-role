@@ -12,6 +12,12 @@ jobs:
   test:
     uses: ./.github/workflows/unit-tests.yml
 
+  e2e:
+    uses: ./.github/workflows/e2e.yml
+
+  hacs:
+    uses: ./.github/workflows/hacs-validate.yml
+
   validate-version:
     runs-on: ubuntu-latest
     steps:
@@ -30,7 +36,7 @@ jobs:
           fi
 
   release:
-    needs: [test, validate-version]
+    needs: [test, e2e, hacs, validate-version]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
