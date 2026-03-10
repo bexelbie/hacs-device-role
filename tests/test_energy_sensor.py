@@ -86,7 +86,7 @@ async def test_energy_sensor_starts_at_zero(hass: HomeAssistant) -> None:
     device, entity_entry = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh", "device_class": "energy"},
+        {"unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
@@ -106,7 +106,7 @@ async def test_energy_sensor_accumulates_deltas(hass: HomeAssistant) -> None:
     device, entity_entry = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
@@ -118,7 +118,7 @@ async def test_energy_sensor_accumulates_deltas(hass: HomeAssistant) -> None:
     # Physical sensor increases by 10 kWh
     hass.states.async_set(
         entity_entry.entity_id, "110.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
@@ -132,7 +132,7 @@ async def test_energy_sensor_metadata(hass: HomeAssistant) -> None:
     device, entity_entry = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
@@ -153,7 +153,7 @@ async def test_energy_sensor_frozen_when_inactive(hass: HomeAssistant) -> None:
     device, entity_entry = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(
@@ -181,7 +181,7 @@ async def test_energy_sensor_preserves_session_across_restart(
     # Physical meter at 100 kWh, role accumulates 10 kWh delta
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
@@ -193,7 +193,7 @@ async def test_energy_sensor_preserves_session_across_restart(
     # Meter increases to 110 → role should show 10
     hass.states.async_set(
         entity_entry.entity_id, "110.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
@@ -210,7 +210,7 @@ async def test_energy_sensor_preserves_session_across_restart(
 
     hass.states.async_set(
         entity_entry.entity_id, "112.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -224,7 +224,7 @@ async def test_energy_sensor_preserves_session_across_restart(
     # Meter advances further — role continues tracking
     hass.states.async_set(
         entity_entry.entity_id, "115.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
@@ -238,7 +238,7 @@ async def test_energy_sensor_commits_on_deactivate(hass: HomeAssistant) -> None:
     device, entity_entry = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
@@ -250,7 +250,7 @@ async def test_energy_sensor_commits_on_deactivate(hass: HomeAssistant) -> None:
     # Accumulate 10 kWh
     hass.states.async_set(
         entity_entry.entity_id, "110.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
@@ -281,7 +281,7 @@ async def test_energy_sensor_reassignment_commits_session(
     device_a, energy_a = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         energy_a.entity_id, "100.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(
@@ -294,7 +294,7 @@ async def test_energy_sensor_reassignment_commits_session(
 
     hass.states.async_set(
         energy_a.entity_id, "110.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
@@ -323,7 +323,7 @@ async def test_energy_sensor_reassignment_commits_session(
     )
     hass.states.async_set(
         energy_b.entity_id, "500.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     # Reassign via options flow: init → change_device → select_device → select_entities
@@ -352,7 +352,7 @@ async def test_energy_sensor_reassignment_commits_session(
     # Device B advances by 3 kWh → role should show 13
     hass.states.async_set(
         energy_b.entity_id, "503.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
@@ -366,7 +366,7 @@ async def test_energy_sensor_unit_is_kwh(hass: HomeAssistant) -> None:
     device, entity_entry = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh"},
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
@@ -386,7 +386,7 @@ async def test_energy_sensor_ignores_unsupported_unit(hass: HomeAssistant) -> No
     # Start with a valid kWh reading to initialize the session
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh", "device_class": "energy"},
+        {"unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
@@ -398,7 +398,7 @@ async def test_energy_sensor_ignores_unsupported_unit(hass: HomeAssistant) -> No
     # Accumulate some valid kWh energy
     hass.states.async_set(
         entity_entry.entity_id, "110.0",
-        {"unit_of_measurement": "kWh", "device_class": "energy"},
+        {"unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
@@ -408,7 +408,7 @@ async def test_energy_sensor_ignores_unsupported_unit(hass: HomeAssistant) -> No
     # Now the source switches to an unsupported unit — should be ignored
     hass.states.async_set(
         entity_entry.entity_id, "999999.0",
-        {"unit_of_measurement": "J", "device_class": "energy"},
+        {"unit_of_measurement": "J", "device_class": "energy", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 
@@ -424,7 +424,7 @@ async def test_energy_session_committed_on_mapping_removal(
     device, entity_entry = _setup_physical_energy_sensor(hass)
     hass.states.async_set(
         entity_entry.entity_id, "100.0",
-        {"unit_of_measurement": "kWh", "device_class": "energy"},
+        {"unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total_increasing"},
     )
 
     entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
@@ -436,7 +436,7 @@ async def test_energy_session_committed_on_mapping_removal(
     # Accumulate 10 kWh
     hass.states.async_set(
         entity_entry.entity_id, "110.0",
-        {"unit_of_measurement": "kWh", "device_class": "energy"},
+        {"unit_of_measurement": "kWh", "device_class": "energy", "state_class": "total_increasing"},
     )
     await hass.async_block_till_done()
 

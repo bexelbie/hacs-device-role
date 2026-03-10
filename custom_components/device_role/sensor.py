@@ -86,8 +86,16 @@ async def async_setup_entry(
         device_class_str = mapping.get(CONF_DEVICE_CLASS)
         source_entity_id = resolve_source_entity_id(hass, mapping)
 
-        if device_class_str and device_class_str == SensorDeviceClass.ENERGY:
-            # Energy sensor with accumulator
+        # Check if the source is a total_increasing energy sensor
+        use_accumulator = False
+        source_state = hass.states.get(source_entity_id)
+        if source_state is not None:
+            state_class = source_state.attributes.get("state_class")
+            source_uom = source_state.attributes.get("unit_of_measurement", "")
+            if state_class == "total_increasing" and source_uom in _ENERGY_UNIT_MAP:
+                use_accumulator = True
+
+        if use_accumulator:
             acc_key = f"{entry.entry_id}_{mapping[CONF_SLOT]}"
             accumulator = store_manager.get_or_create(acc_key)
 
