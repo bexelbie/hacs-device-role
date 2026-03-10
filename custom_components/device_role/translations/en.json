@@ -37,6 +37,7 @@
     "step": {
       "init": {
         "title": "Device Role Options",
+        "description": "Currently backed by **{device_name}**.",
         "data": {
           "active": "Role active",
           "entities": "Entities",
@@ -59,7 +60,8 @@
       }
     },
     "error": {
-      "entity_claimed": "One or more selected entities are already claimed by another active role."
+      "entity_claimed": "One or more selected entities are already claimed by another active role.",
+      "unit_mismatch": "New device has a different unit for an accumulating sensor. Delete and recreate the role to change units."
     }
   }
 }

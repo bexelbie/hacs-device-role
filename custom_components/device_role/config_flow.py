@@ -7,6 +7,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import (
     config_validation as cv,
+    device_registry as dr,
     entity_registry as er,
 )
 from homeassistant.helpers.selector import (
@@ -215,6 +216,11 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
         device_id = self._config_entry.data.get(CONF_DEVICE_ID)
         entity_reg = er.async_get(self.hass)
 
+        # Look up device name for display
+        device_reg = dr.async_get(self.hass)
+        device = device_reg.async_get(device_id) if device_id else None
+        device_name = device.name if device else "Unknown device"
+
         # Get eligible entities from the device
         device_entities = er.async_entries_for_device(
             entity_reg, device_id, include_disabled_entities=False
@@ -327,6 +333,7 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(schema_fields),
+            description_placeholders={"device_name": device_name},
             errors=errors,
         )
 
@@ -391,20 +398,54 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
             if conflict:
                 errors["base"] = "entity_claimed"
             else:
-                # Commit energy accumulators before reassignment so the
-                # old device's session delta is preserved in historical_sum
-                # and a fresh session starts on the new device.
+                # Check for unit mismatches between existing accumulators
+                # and new source entities before allowing reassignment.
                 store_manager = self.hass.data.get(DOMAIN, {}).get(
                     "store_manager"
                 )
                 if store_manager:
                     for mapping in current_mappings:
-                        if mapping.get(CONF_DEVICE_CLASS) == "energy":
-                            acc_key = (
-                                f"{self._config_entry.entry_id}"
-                                f"_{mapping[CONF_SLOT]}"
+                        acc_key = (
+                            f"{self._config_entry.entry_id}"
+                            f"_{mapping[CONF_SLOT]}"
+                        )
+                        acc = store_manager._accumulators.get(acc_key)
+                        if acc is None or acc.unit is None:
+                            continue
+                        # Find matching slot in new selection
+                        for new_entry in selected_entries:
+                            new_slot = _build_slot_name(
+                                new_entry.domain,
+                                new_entry.original_device_class,
                             )
-                            acc = store_manager.get_or_create(acc_key)
+                            if new_slot == mapping[CONF_SLOT]:
+                                new_state = self.hass.states.get(
+                                    new_entry.entity_id
+                                )
+                                new_unit = (
+                                    new_state.attributes.get(
+                                        "unit_of_measurement", ""
+                                    )
+                                    if new_state
+                                    else ""
+                                )
+                                if new_unit and new_unit != acc.unit:
+                                    errors["base"] = "unit_mismatch"
+                                    break
+                        if errors:
+                            break
+
+            if not errors:
+                # Commit all active accumulator sessions before reassignment
+                # so the old device's deltas are preserved in historical_sum.
+                if store_manager:
+                    for mapping in current_mappings:
+                        acc_key = (
+                            f"{self._config_entry.entry_id}"
+                            f"_{mapping[CONF_SLOT]}"
+                        )
+                        acc = store_manager._accumulators.get(acc_key)
+                        if acc is not None:
                             acc.commit_session()
 
                 mappings = []
