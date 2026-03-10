@@ -400,11 +400,28 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
             if conflict:
                 errors["base"] = "entity_claimed"
             else:
+                # Build new mappings first so slot names are deduplicated
+                new_mappings = []
+                for entry in selected_entries:
+                    new_mappings.append(
+                        {
+                            CONF_SLOT: _build_slot_name(
+                                entry.domain, entry.original_device_class
+                            ),
+                            CONF_SOURCE_UNIQUE_ID: entry.unique_id,
+                            CONF_SOURCE_ENTITY_ID: entry.entity_id,
+                            CONF_DOMAIN: entry.domain,
+                            CONF_DEVICE_CLASS: entry.original_device_class,
+                        }
+                    )
+                new_mappings = _deduplicate_slots(new_mappings)
+
                 # Check for unit mismatches between existing accumulators
                 # and new source entities before allowing reassignment.
                 store_manager = self.hass.data.get(DOMAIN, {}).get(
                     "store_manager"
                 )
+                new_by_slot = {m[CONF_SLOT]: m for m in new_mappings}
                 if store_manager:
                     for mapping in current_mappings:
                         acc_key = (
@@ -414,27 +431,21 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
                         acc = store_manager._accumulators.get(acc_key)
                         if acc is None or acc.unit is None:
                             continue
-                        # Find matching slot in new selection
-                        for new_entry in selected_entries:
-                            new_slot = _build_slot_name(
-                                new_entry.domain,
-                                new_entry.original_device_class,
+                        new_mapping = new_by_slot.get(mapping[CONF_SLOT])
+                        if new_mapping is None:
+                            continue
+                        new_state = self.hass.states.get(
+                            new_mapping[CONF_SOURCE_ENTITY_ID]
+                        )
+                        new_unit = (
+                            new_state.attributes.get(
+                                "unit_of_measurement", ""
                             )
-                            if new_slot == mapping[CONF_SLOT]:
-                                new_state = self.hass.states.get(
-                                    new_entry.entity_id
-                                )
-                                new_unit = (
-                                    new_state.attributes.get(
-                                        "unit_of_measurement", ""
-                                    )
-                                    if new_state
-                                    else ""
-                                )
-                                if new_unit and new_unit != acc.unit:
-                                    errors["base"] = "unit_mismatch"
-                                    break
-                        if errors:
+                            if new_state
+                            else ""
+                        )
+                        if new_unit and new_unit != acc.unit:
+                            errors["base"] = "unit_mismatch"
                             break
 
             if not errors:
@@ -450,24 +461,9 @@ class DeviceRoleOptionsFlow(config_entries.OptionsFlow):
                         if acc is not None:
                             acc.commit_session()
 
-                mappings = []
-                for entry in selected_entries:
-                    mappings.append(
-                        {
-                            CONF_SLOT: _build_slot_name(
-                                entry.domain, entry.original_device_class
-                            ),
-                            CONF_SOURCE_UNIQUE_ID: entry.unique_id,
-                            CONF_SOURCE_ENTITY_ID: entry.entity_id,
-                            CONF_DOMAIN: entry.domain,
-                            CONF_DEVICE_CLASS: entry.original_device_class,
-                        }
-                    )
-                mappings = _deduplicate_slots(mappings)
-
                 new_data = dict(self._config_entry.data)
                 new_data[CONF_DEVICE_ID] = self._new_device_id
-                new_data[CONF_ENTITY_MAPPINGS] = mappings
+                new_data[CONF_ENTITY_MAPPINGS] = new_mappings
 
                 self.hass.config_entries.async_update_entry(
                     self._config_entry, data=new_data
