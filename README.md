@@ -1,112 +1,202 @@
 # Device Role — Home Assistant Custom Integration
 
-Separate **physical device identity** from **logical function** in Home
-Assistant.  Create named "roles" (like *Projector* or *Balcony*) backed by
-physical devices.  When a device is replaced or moved, update the mapping —
-entity IDs, history, automations, and energy dashboards stay intact.
+Device Role lets you separate **physical device identity** from **what that device is currently doing** in Home Assistant.
+You create named roles like `Projector` or `Balcony`, back them with real devices, and get stable entities that keep their IDs and history even when you move or replace the underlying hardware.
 
-## Problem
+## Why you might want this
 
-Home Assistant ties entity identity to the physical device that produces it.
-This causes pain when:
+Home Assistant ties entity identity to the physical device. That hurts when you:
 
-| Scenario | What breaks |
-|----------|-------------|
-| A temperature sensor moves between rooms | History for both rooms is contaminated |
-| A power-monitoring plug is reassigned to a different appliance | Energy dashboard shows a nonsensical sum |
-| A device is replaced with a new unit | Entity IDs change; automations, dashboards, and scripts break |
+- **Move a sensor between locations**  
+  A “Balcony Temperature” sensor spends a week in your freezer for debugging. Your balcony history now shows −18 °C in July.
 
-**Device Role** solves this by interposing a stable logical layer between
-physical devices and the rest of Home Assistant.
+- **Reuse a power-monitoring plug**  
+  A smart plug moves from “Projector” to “Christmas Lights” and back. The energy dashboard thinks the projector burned power for both.
 
-## How it works
+- **Replace a dead device**  
+  You pair a new unit and get new entity IDs. Renaming the new entities in the wrong order can orphan history and break automations.
 
-```
-Physical device  ──state changes──▶  Role entity  ──▶  Dashboards
-  (sensor.ikea_plug_abc123_energy)     (sensor.projector_energy)   Automations
-                                                                    History
-```
+Device Role gives you a stable logical layer on top of those physical devices, so automations and dashboards point at what you care about, not at whatever MAC address happens to be there today.
 
-1. **Create a role** — give it a name and select a physical device.
-2. **Pick which entities to mirror** — temperature, power, energy, switch, etc.
-3. Role entities appear with stable IDs derived from the role name.
-   Entity names match the source device (e.g. "Summation Delivered",
-   not a generated name).  The role's device page links back to the
-   physical device via "Connected via".
-4. When the physical device changes, **update the mapping** in the role's
-   options.  Everything downstream keeps working.
+## What Device Role does
 
-### Energy accumulator
+At a high level:
 
-Sensors with `state_class: total_increasing` and a supported energy unit
-(kWh, Wh, MWh) get special treatment.  A naive mirror would show the
-lifetime kWh of whichever physical meter is currently attached.  Instead,
-Device Role tracks a **session-based accumulator**:
+- You create a **role** (for example, `Projector` or `Balcony`).
+- You assign it to a **physical device** that already exists in Home Assistant.
+- You pick which entities from that device to expose through the role.
+- Device Role creates new “role entities” (like `sensor.projector_energy`) that your dashboards, automations, and the energy dashboard use.
+- When you move or replace hardware, you update the role’s backing device. The role entities keep their IDs and, where it makes sense, their history.
+
+Visually:
 
 ```
-role_energy = historical_sum + (current_reading − session_start)
+Physical device (Zigbee plug, sensor, etc)
+  │
+  │ state changes
+  ▼
+Role entities (sensor.projector_power, sensor.projector_energy, ...)
+  │
+  ▼
+Dashboards / Automations / History / Energy
 ```
 
-- Activating a role starts a session and records the meter's current value.
-- Only the *delta* from that point counts toward the role.
-- Deactivating the role commits the delta and freezes the energy value
-  (it stays available so HA statistics don't misinterpret a gap).
-- Reactivating — with the same or a different device — starts a fresh session.
+### Entity behavior
 
-Reset detection handles device factory-resets (drops > 0.5 kWh) without
-treating measurement jitter as a reset.
+Each role can be **active** or **inactive**:
 
-## Supported entity types
+- When a role is active, its entities track the underlying physical device.
+- When a role is inactive, its entities stop updating; how that looks in HA depends on the domain.
 
-| Domain | Behavior | When role is inactive |
-|--------|----------|-----------------------|
-| `sensor` (measurement) | Mirrors state, device class, unit | Unavailable |
-| `sensor` (`total_increasing` with energy unit) | Accumulates via session tracker | **Frozen** (stays available) |
-| `sensor` (all other) | Mirrors state, device class, unit | Unavailable |
-| `binary_sensor` | Mirrors state and device class | Unavailable |
-| `switch` | Mirrors state; forwards `turn_on`/`turn_off` | Unavailable |
+Supported domains and behavior:
+
+| Domain | Behavior when role is active | Behavior when role is inactive |
+|--------|------------------------------|--------------------------------|
+| `sensor` (measurement) | Mirrors state, device class, and unit | Becomes unavailable |
+| `sensor` (total_increasing) | Tracks cumulative value using a role-local accumulator | Stays available at a frozen value |
+| `binary_sensor` | Mirrors state and device class | Becomes unavailable |
+| `switch` | Mirrors state; forwards `turn_on` / `turn_off` | Becomes unavailable |
+
+Accumulating sensors (any sensor with `state_class: total_increasing`) are the one special case:
+
+- When a role is active, its accumulating sensor tracks consumption into a role-local total.
+- When you deactivate the role, the sensor holds its last value and stays available, even if the physical device keeps running.
+- When you reactivate the role (with the same or a different compatible device), the sensor resumes from that held value and ignores whatever the device did in between.
+- This works for energy (kWh), water (m³), gas (ft³), and any other cumulative sensor.
+
+If you care about the internal accumulator math and edge cases, see the design notes in [analysis.md](analysis.md).
 
 ## Installation
 
 ### HACS (recommended)
 
-1. Open HACS in your Home Assistant instance.
-2. Go to the three-dot menu → **Custom repositories**.
-3. Paste `https://github.com/bexelbie/hacs-device-role` and select category **Integration**.
-4. Click **Add**, then find "Device Role" in the HACS integration list and install it.
+1. In Home Assistant, open **HACS**.
+2. Three-dot menu → **Custom repositories**.
+3. Add `https://github.com/bexelbie/hacs-device-role` with category **Integration**.
+4. After it appears in HACS, install **Device Role**.
 5. Restart Home Assistant.
 
-HACS will notify you when new releases are available.
+HACS will let you know when updates are available.
 
-### Manual
+### Manual installation
 
-Copy `custom_components/device_role/` into your Home Assistant
-`config/custom_components/` directory, then restart Home Assistant.
+1. Copy the `custom_components/device_role/` directory from this repository.
+2. Place it into your Home Assistant `config/custom_components/` directory.
+3. Restart Home Assistant.
 
-## Configuration
+## Setup and configuration
 
-Everything is done through the UI — no YAML.
+Everything is done through the UI. No YAML required.
 
-1. **Settings → Devices & Services → Add Integration → Device Role**
-2. Enter a role name (e.g. "Projector").
-3. Select a physical device.
-4. Choose which entities from that device to mirror.
+1. Go to **Settings → Devices & Services → Add integration**.
+2. Search for **Device Role**.
+3. Enter a **role name** (for example, `Projector` or `Balcony`).
+4. Pick the **physical device** to back the role.
+5. Select which entities from that device you want the role to expose.
 
-### Options
+This creates a “role device” with its own entities. Use those role entities everywhere you previously used the physical ones.
 
-After creation, open **Settings → Devices & Services → Device Role**, click
-the **⋮** menu on your role entry, and choose **Configure** to:
+### Changing a role later
 
-- **Toggle active/inactive** — deactivates mirroring and freezes energy.
-- **Add or remove entities** — change which physical entities the role
-  mirrors without losing accumulated energy or changing existing entity IDs.
-- **Reassign to a different device** — swap the physical device backing the
-  role while preserving slot-based energy history.
+From **Settings → Devices & Services → Device Role**:
+
+1. Find the role.
+2. Click the **⋮** menu.
+3. Choose **Configure**.
+
+From there you can:
+
+- **Toggle active / inactive**  
+  - Active: role entities track the physical device.  
+  - Inactive: measurement and binary sensors become unavailable; energy sensors stay available at a frozen value.
+
+- **Change which entities are mirrored**  
+  - Add or remove individual entities from the backing device.  
+  - Changing the set of mirrored entities does not change existing role entity IDs.
+
+- **Reassign the role to a different device**  
+  - Point the same role at a new physical device that has compatible entities (for example, a replacement smart plug).  
+  - For compatible energy entities, the role’s accumulated history is preserved.
 
 ### Deleting a role
 
-From the same **⋮** menu, choose **Delete**. This removes the role device,
-all its entities, and purges any stored energy accumulator data.
+From the role’s **⋮** menu, choose **Delete**.
+
+This removes:
+
+- The role device
+- All role entities
+- Any stored energy accumulator state for that role
+
+Automations and dashboards that reference those role entities will need to be updated or removed, just like removing any other integration.
+
+## Usage examples
+
+### Reusing a power plug (Projector ↔ Christmas Lights)
+
+- Create a role called `Projector` and assign it to your smart plug.
+- Mirror the switch, power, and energy entities.
+- Point your projector automations and energy dashboard at the role entities.
+
+In December:
+
+- Deactivate `Projector`.
+- Create a `Christmas Lights` role assigned to the same physical plug, with its own energy slot.
+- Point any holiday automations at `Christmas Lights`.
+
+In January:
+
+- Deactivate `Christmas Lights`.
+- Reactivate `Projector`.
+
+Result:
+
+- Projector energy history is clean and continuous across seasons.
+- Christmas lights get their own separate history.
+- No entity renaming. No dashboard surgery.
+
+### Moving a temperature sensor (Balcony ↔ Basement)
+
+- Create a `Balcony` role for your temperature/humidity sensor and use it in dashboards and automations.
+- When you move the physical sensor to the basement:
+  - Deactivate `Balcony`.
+  - Create a `Basement` role assigned to the same device.
+
+Result:
+
+- Balcony history stops cleanly when you moved the sensor.
+- Basement history starts fresh.
+- You do not get −18 °C on the balcony because you temporarily put the sensor in the freezer.
+
+### Replacing a dead device
+
+- Your projector plug dies. You pair a new one and keep its physical name separate from any roles.
+- Open the `Projector` role, go to **Configure**, and reassign it to the new device.
+- Role entity IDs stay the same; history and automations keep working.
+
+## Limitations and caveats
+
+- **Supported domains**  
+  - Only `sensor`, `binary_sensor`, and `switch` are supported today.  
+  - Lights, covers, climate, and more complex domains are not mirrored yet.
+
+- **One active role per physical accumulating entity**  
+  - A physical `total_increasing` sensor can back at most one active role at a time. This avoids double-counting the same consumption into multiple roles.
+
+- **Untracked consumption when no role is active**  
+  - If a device is consuming resources while no role is active for its accumulating entity, that consumption is not attributed to any role. This is intentional: the role means “I care about tracking this use.”
+
+- **Unit compatibility on reassignment**  
+  - The options flow will reject reassignment to a device that reports a different unit for an accumulating sensor (e.g., kWh → Wh, or kWh → gal). To change units, delete and recreate the role. A future version may offer unit conversion during reassignment.
+
+- **No pre-seeding of accumulator values**  
+  - New roles always start their accumulators at zero. If you’re replacing a role and know the prior accumulated value, there is currently no way to enter it. This may be addressed in a future version.
+
+- **Recorder and storage**  
+  - By default both the physical entity and the role entity are recorded.  
+  - If you want to save space, you can exclude the physical entities from the recorder in Home Assistant’s settings.
+
+For deeper technical notes, see [analysis.md](analysis.md).
 
 ## Requirements
 
@@ -115,34 +205,30 @@ all its entities, and purges any stored energy accumulator data.
 
 ## FAQ
 
-### Does reassignment preserve energy history?
+### Does reassignment preserve accumulator history?
 
-Energy history is tied to **slot names** (e.g. `sensor_energy`), which are
-derived from the entity's domain and device class.  The accumulator is used
-for any source sensor with `state_class: total_increasing` and a supported
-energy unit (kWh, Wh, MWh).  If you reassign a role from one device to
-another and both devices have such a sensor with the same device class, the
-slot name stays the same and accumulated energy carries forward seamlessly.
+Yes, as long as the new device reports the same unit of measurement for the matching sensor slot. The options flow will prevent reassignment if the units don’t match.
 
-If the replacement device has a different set of entity types (e.g. the
-old device had an energy sensor but the new one doesn't), the old slot's
-energy history becomes orphaned — it's still in storage but no entity
-references it.  This is by design: the role's entity IDs stay stable for
-matching entities, and there's nothing meaningful to do with history from
-an entity type the new device doesn't support.
+If the new device doesn’t expose a matching accumulating entity, the old history is kept in storage but no longer attached to an active role entity.
 
-### What energy units are supported?
+### What sensors use the accumulator?
 
-The accumulator supports **kWh**, **Wh**, and **MWh**.  Readings in other
-units are silently ignored to prevent data corruption.  If your device
-reports in an unsupported unit, the energy sensor will not accumulate
-until the unit is recognized.
+Any sensor with `state_class: total_increasing` gets a role-local accumulator. This includes energy (kWh), water (m³), gas (ft³), and any other cumulative sensor. The accumulator stores values in whatever unit the source entity reports — no conversion is applied.
 
-## Contributing
+### What happens if I uninstall the integration?
 
-See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) for build commands, architecture,
-testing, and release process.  See [analysis.md](analysis.md) for the original
-design rationale.
+If you remove the integration:
+
+- All role devices and entities disappear.
+- Any automations, dashboards, or energy dashboard configuration that reference role entities will break in the same way they would if you removed any other integration.
+
+You can always reinstall Device Role later, but the role entities will be recreated fresh.
+
+## Design notes and contributing
+
+If you want to understand **why** Device Role works the way it does, or you’re interested in contributing, see:
+
+- [analysis.md](analysis.md) — problem analysis, design choices, and implementation notes.
 
 ## License
 
