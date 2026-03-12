@@ -51,12 +51,9 @@
           "device_id": "Device"
         }
       },
-      "select_entities": {
-        "title": "Select Entities",
-        "description": "Choose which entities from this device the role should mirror.",
-        "data": {
-          "entities": "Entities"
-        }
+      "map_entities": {
+        "title": "Map Role Entities",
+        "description": "Choose which source entity on the new device should back each existing role entity. Leave a field blank to remove that role entity."
       }
     },
     "error": {

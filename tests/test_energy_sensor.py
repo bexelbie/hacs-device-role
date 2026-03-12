@@ -326,7 +326,7 @@ async def test_energy_sensor_reassignment_commits_session(
         {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
     )
 
-    # Reassign via options flow: init → change_device → select_device → select_entities
+    # Reassign via options flow: init → change_device → select_device
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
@@ -335,10 +335,6 @@ async def test_energy_sensor_reassignment_commits_session(
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {CONF_DEVICE_ID: device_b.id},
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"entities": [energy_b.entity_id]},
     )
     assert result["type"] == "create_entry"
     await hass.async_block_till_done()
@@ -554,10 +550,6 @@ async def test_reassignment_blocked_on_unit_mismatch(
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {CONF_DEVICE_ID: device_b.id},
-    )
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"entities": [energy_b.entity_id]},
     )
 
     # Flow should show error and stay on the form

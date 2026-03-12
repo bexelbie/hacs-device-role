@@ -1,0 +1,255 @@
+# ABOUTME: Service registration and handlers for the device_role integration.
+# ABOUTME: Exposes role discovery and lifecycle management through Home Assistant services.
+
+from __future__ import annotations
+
+import inspect
+
+import voluptuous as vol
+
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.service import async_register_admin_service
+
+from .const import CONF_ACTIVE, CONF_DEVICE_ID, CONF_ENTITY_MAPPINGS, CONF_ROLE_NAME, DOMAIN
+from .role_manager import (
+    RoleManagerError,
+    async_update_role_entry,
+    build_configured_mappings,
+    build_reassignment_mappings,
+    commit_entry_accumulators,
+    create_device_role_entry,
+    get_device_role_entry,
+    get_device_role_entries,
+    serialize_role,
+    validate_reassignment_units,
+    validate_role_name,
+)
+
+SERVICE_LIST_ROLES = "list_roles"
+SERVICE_CREATE_ROLE = "create_role"
+SERVICE_SET_ACTIVE = "set_active"
+SERVICE_CONFIGURE_ENTITIES = "configure_entities"
+SERVICE_REASSIGN = "reassign"
+SERVICE_DELETE_ROLE = "delete_role"
+
+ROLE_ASSIGNMENT_SCHEMA = vol.Schema(
+    {
+        vol.Required("role_entity_id"): cv.entity_id,
+        vol.Required("entity_id"): cv.entity_id,
+    }
+)
+_ADMIN_SERVICE_SUPPORTS_RESPONSE = (
+    "supports_response" in inspect.signature(async_register_admin_service).parameters
+)
+
+
+def _raise_service_error(err: RoleManagerError) -> None:
+    """Translate a role-manager error into a service validation error."""
+    raise ServiceValidationError(
+        err.message,
+        translation_domain=DOMAIN,
+        translation_key=err.code,
+    )
+
+
+def _async_register_device_role_service(
+    hass: HomeAssistant,
+    service: str,
+    service_func,
+    *,
+    schema: vol.Schema | None = None,
+    supports_response: SupportsResponse = SupportsResponse.NONE,
+) -> None:
+    """Register an admin service while tolerating older helper signatures."""
+    register_kwargs: dict[str, object] = {}
+    if schema is not None:
+        register_kwargs["schema"] = schema
+    if _ADMIN_SERVICE_SUPPORTS_RESPONSE:
+        register_kwargs["supports_response"] = supports_response
+
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        service,
+        service_func,
+        **register_kwargs,
+    )
+
+
+async def _async_handle_list_roles(call: ServiceCall) -> dict[str, object]:
+    """Return all roles."""
+    return {
+        "roles": [
+            serialize_role(call.hass, entry)
+            for entry in get_device_role_entries(call.hass)
+        ]
+    }
+
+
+async def _async_handle_create_role(call: ServiceCall) -> dict[str, object]:
+    """Create a new role-backed config entry."""
+    role_name = call.data["name"].strip()
+    device_id = call.data[CONF_DEVICE_ID]
+    entity_ids = call.data["entity_ids"]
+
+    try:
+        validate_role_name(call.hass, role_name)
+        mappings = build_configured_mappings(
+            call.hass,
+            device_id,
+            entity_ids,
+            require_non_empty=True,
+        )
+    except RoleManagerError as err:
+        _raise_service_error(err)
+
+    entry = create_device_role_entry(role_name, device_id, mappings)
+    await call.hass.config_entries.async_add(entry)
+    return {"role": serialize_role(call.hass, entry)}
+
+
+async def _async_handle_set_active(call: ServiceCall) -> dict[str, object]:
+    """Set a role active or inactive."""
+    try:
+        entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+    except RoleManagerError as err:
+        _raise_service_error(err)
+
+    new_data = dict(entry.data)
+    new_data[CONF_ACTIVE] = call.data[CONF_ACTIVE]
+    entry = await async_update_role_entry(call.hass, entry, new_data)
+    return {"role": serialize_role(call.hass, entry)}
+
+
+async def _async_handle_configure_entities(call: ServiceCall) -> dict[str, object]:
+    """Update the entity set for an existing role."""
+    try:
+        entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+        mappings = build_configured_mappings(
+            call.hass,
+            entry.data[CONF_DEVICE_ID],
+            call.data["entity_ids"],
+            existing_mappings=entry.data.get(CONF_ENTITY_MAPPINGS, []),
+            exclude_entry_id=entry.entry_id,
+            require_non_empty=False,
+        )
+    except RoleManagerError as err:
+        _raise_service_error(err)
+
+    new_data = dict(entry.data)
+    new_data[CONF_ENTITY_MAPPINGS] = mappings
+    entry = await async_update_role_entry(call.hass, entry, new_data)
+    return {"role": serialize_role(call.hass, entry)}
+
+
+async def _async_handle_reassign(call: ServiceCall) -> dict[str, object]:
+    """Reassign a role to a different physical device."""
+    try:
+        entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+        device_id = call.data[CONF_DEVICE_ID]
+        new_mappings = build_reassignment_mappings(
+            call.hass,
+            entry,
+            device_id,
+            call.data["assignments"],
+        )
+        validate_reassignment_units(call.hass, entry, new_mappings)
+    except RoleManagerError as err:
+        _raise_service_error(err)
+
+    commit_entry_accumulators(call.hass, entry)
+    new_data = dict(entry.data)
+    new_data[CONF_DEVICE_ID] = device_id
+    new_data[CONF_ENTITY_MAPPINGS] = new_mappings
+    entry = await async_update_role_entry(call.hass, entry, new_data)
+    return {"role": serialize_role(call.hass, entry)}
+
+
+async def _async_handle_delete_role(call: ServiceCall) -> dict[str, object]:
+    """Delete a role config entry."""
+    try:
+        entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+    except RoleManagerError as err:
+        _raise_service_error(err)
+
+    response = {
+        "config_entry_id": entry.entry_id,
+        "name": entry.data.get(CONF_ROLE_NAME, entry.title),
+    }
+    await call.hass.config_entries.async_remove(entry.entry_id)
+    return response
+
+
+def async_register_services(hass: HomeAssistant) -> None:
+    """Register device_role services once."""
+    if hass.services.has_service(DOMAIN, SERVICE_LIST_ROLES):
+        return
+
+    _async_register_device_role_service(
+        hass,
+        SERVICE_LIST_ROLES,
+        _async_handle_list_roles,
+        supports_response=SupportsResponse.ONLY,
+    )
+    _async_register_device_role_service(
+        hass,
+        SERVICE_CREATE_ROLE,
+        _async_handle_create_role,
+        schema=vol.Schema(
+            {
+                vol.Required("name"): str,
+                vol.Required(CONF_DEVICE_ID): str,
+                vol.Required("entity_ids"): vol.All(cv.ensure_list, [cv.entity_id]),
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_device_role_service(
+        hass,
+        SERVICE_SET_ACTIVE,
+        _async_handle_set_active,
+        schema=vol.Schema(
+            {
+                vol.Required("config_entry_id"): str,
+                vol.Required(CONF_ACTIVE): bool,
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_device_role_service(
+        hass,
+        SERVICE_CONFIGURE_ENTITIES,
+        _async_handle_configure_entities,
+        schema=vol.Schema(
+            {
+                vol.Required("config_entry_id"): str,
+                vol.Required("entity_ids"): vol.All(cv.ensure_list, [cv.entity_id]),
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_device_role_service(
+        hass,
+        SERVICE_REASSIGN,
+        _async_handle_reassign,
+        schema=vol.Schema(
+            {
+                vol.Required("config_entry_id"): str,
+                vol.Required(CONF_DEVICE_ID): str,
+                vol.Required("assignments"): vol.All(
+                    cv.ensure_list,
+                    [ROLE_ASSIGNMENT_SCHEMA],
+                ),
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    _async_register_device_role_service(
+        hass,
+        SERVICE_DELETE_ROLE,
+        _async_handle_delete_role,
+        schema=vol.Schema({vol.Required("config_entry_id"): str}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )

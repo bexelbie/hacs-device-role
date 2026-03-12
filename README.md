@@ -84,7 +84,7 @@ HACS will let you know when updates are available.
 
 ## Setup and configuration
 
-Everything is done through the UI. No YAML required.
+Everything can be done through the UI. No YAML required.
 
 1. Go to **Settings → Devices & Services → Add integration**.
 2. Search for **Device Role**.
@@ -115,6 +115,55 @@ From there you can:
 - **Reassign the role to a different device**  
   - Point the same role at a new physical device that has compatible entities (for example, a replacement smart plug).  
   - For compatible accumulating entities, the role’s accumulated history is preserved.
+  - If the new device has ambiguous matches (for example, two temperature sensors), the options flow asks you to map the existing role entities explicitly.
+
+## Programmatic management
+
+Device Role also exposes Home Assistant services so automations, scripts, REST clients, and MCP-style callers can manage roles without driving the config-flow UI.
+
+Available services:
+
+- `device_role.list_roles`
+- `device_role.create_role`
+- `device_role.set_active`
+- `device_role.configure_entities`
+- `device_role.reassign`
+- `device_role.delete_role`
+
+Use `device_role.list_roles` first when you need to discover existing roles and their current logical-to-physical mappings.
+
+### Service model
+
+- `configure_entities` changes the mirrored source entities **on the current backing device**.
+- `reassign` moves a role to a **different backing device**.
+- `reassign` is keyed by **existing role entities**, not internal slots. For example, you reassign `sensor.projector_energy` to a new physical source entity instead of reasoning about `sensor_energy`.
+
+### Example service calls
+
+Using an automation or script action:
+
+```yaml
+action: device_role.set_active
+data:
+  config_entry_id: 01ABCDEF234567890
+  active: false
+```
+
+Reassign a role to a new device while preserving the logical role entities:
+
+```yaml
+action: device_role.reassign
+data:
+  config_entry_id: 01ABCDEF234567890
+  device_id: abc123def456
+  assignments:
+    - role_entity_id: sensor.projector_energy
+      entity_id: sensor.new_plug_energy
+    - role_entity_id: switch.projector_switch
+      entity_id: switch.new_plug_outlet
+```
+
+To discover the exact service fields and examples from Home Assistant itself, inspect the service metadata for the `device_role` domain. MCP and other service-discovery clients should read that metadata instead of guessing.
 
 ### Deleting a role
 
@@ -179,6 +228,9 @@ Result:
 
 - **One active role per physical device entity**  
   - A physical entity can only be assigned to a single active role at a time.
+
+- **Service bootstrap limitation**  
+  - Device Role currently uses one config entry per role. Because Home Assistant only loads the integration domain after at least one role exists, the service API can manage existing roles and create additional roles once Device Role is loaded, but it does not bootstrap the very first role from a cold start.
 
 - **Unit compatibility on reassignment**  
   - The options flow will reject reassignment to a device that reports a different unit for an accumulating sensor (e.g., kWh → Wh, or kWh → gal). To change units, delete and recreate the role.

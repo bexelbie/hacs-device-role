@@ -6,7 +6,15 @@ from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
 
 from .const import DOMAIN, PLATFORMS
+from .services import async_register_services
 from .sensor import AccumulatorStoreManager
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the device_role integration domain."""
+    hass.data.setdefault(DOMAIN, {})
+    async_register_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -24,21 +32,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await store_manager.async_save_now()
 
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _save_on_shutdown)
+    else:
+        store_manager = hass.data[DOMAIN]["store_manager"]
 
     hass.data[DOMAIN][entry.entry_id] = {}
 
-    # Reload the entry when config data changes (e.g. options flow)
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
-
-
-async def _async_update_listener(
-    hass: HomeAssistant, entry: ConfigEntry
-) -> None:
-    """Reload the entry when configuration changes."""
-    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
