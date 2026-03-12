@@ -235,6 +235,24 @@ async def test_list_roles_returns_canonical_role_objects(
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
+async def test_list_roles_returns_empty_list_when_no_roles_loaded(
+    hass: HomeAssistant,
+) -> None:
+    """The list_roles service works when the domain is loaded without any roles."""
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    response = await hass.services.async_call(
+        DOMAIN,
+        "list_roles",
+        blocking=True,
+        return_response=True,
+    )
+
+    assert response == {"roles": []}
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
 async def test_create_role_service_creates_active_role(
     hass: HomeAssistant,
 ) -> None:
@@ -297,6 +315,110 @@ async def test_create_role_service_creates_active_role(
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
+async def test_create_role_service_rejects_duplicate_name(
+    hass: HomeAssistant,
+) -> None:
+    """create_role rejects duplicate role names."""
+    device = _create_source_device(
+        hass,
+        name="Office Sensor",
+        identifiers={("test", "office_sensor_duplicate_name")},
+    )
+    temp = _create_source_entity(
+        hass,
+        device_id=device.id,
+        domain="sensor",
+        unique_id="office_temp_duplicate_name",
+        object_id="office_sensor_duplicate_name_temperature",
+        original_name="Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    hass.states.async_set(temp.entity_id, "21.5")
+
+    entry = _make_role_entry(
+        role_name="Office",
+        device_id=device.id,
+        mappings=[
+            _make_mapping(
+                slot="sensor_temperature",
+                source_unique_id=temp.unique_id,
+                source_entity_id=temp.entity_id,
+                domain="sensor",
+                device_class="temperature",
+            )
+        ],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError, match="already exists"):
+        await hass.services.async_call(
+            DOMAIN,
+            "create_role",
+            {
+                "name": "Office",
+                "device_id": device.id,
+                "entity_ids": [temp.entity_id],
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_create_role_service_rejects_claimed_entity(
+    hass: HomeAssistant,
+) -> None:
+    """create_role rejects source entities claimed by another active role."""
+    device = _create_source_device(
+        hass,
+        name="Office Sensor",
+        identifiers={("test", "office_sensor_claimed")},
+    )
+    temp = _create_source_entity(
+        hass,
+        device_id=device.id,
+        domain="sensor",
+        unique_id="office_temp_claimed",
+        object_id="office_sensor_claimed_temperature",
+        original_name="Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    hass.states.async_set(temp.entity_id, "21.5")
+
+    entry = _make_role_entry(
+        role_name="Office",
+        device_id=device.id,
+        mappings=[
+            _make_mapping(
+                slot="sensor_temperature",
+                source_unique_id=temp.unique_id,
+                source_entity_id=temp.entity_id,
+                domain="sensor",
+                device_class="temperature",
+            )
+        ],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError, match="already claimed"):
+        await hass.services.async_call(
+            DOMAIN,
+            "create_role",
+            {
+                "name": "Office 2",
+                "device_id": device.id,
+                "entity_ids": [temp.entity_id],
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
 async def test_set_active_service_toggles_role_state(
     hass: HomeAssistant,
 ) -> None:
@@ -346,6 +468,24 @@ async def test_set_active_service_toggles_role_state(
     assert entry.data[CONF_ACTIVE] is False
     assert hass.states.get("sensor.balcony_temperature").state == STATE_UNAVAILABLE
     assert response["role"]["active"] is False
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_set_active_service_rejects_invalid_config_entry_id(
+    hass: HomeAssistant,
+) -> None:
+    """set_active translates invalid config entry IDs into service errors."""
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError, match="was not found"):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_active",
+            {"config_entry_id": "missing-entry", "active": False},
+            blocking=True,
+            return_response=True,
+        )
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -421,6 +561,145 @@ async def test_configure_entities_service_preserves_existing_role_entities(
     )
     assert temp_mapping["slot"] == "sensor_temperature"
     assert temp_mapping["role_entity_id"] == "sensor.garden_temperature"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_configure_entities_service_rejects_claimed_entity(
+    hass: HomeAssistant,
+) -> None:
+    """configure_entities rejects entities claimed by another active role."""
+    device = _create_source_device(
+        hass,
+        name="Garden Sensor",
+        identifiers={("test", "garden_sensor_claimed")},
+    )
+    temp = _create_source_entity(
+        hass,
+        device_id=device.id,
+        domain="sensor",
+        unique_id="garden_temp_claimed",
+        object_id="garden_sensor_claimed_temperature",
+        original_name="Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    humidity = _create_source_entity(
+        hass,
+        device_id=device.id,
+        domain="sensor",
+        unique_id="garden_humidity_claimed",
+        object_id="garden_sensor_claimed_humidity",
+        original_name="Humidity",
+        device_class=SensorDeviceClass.HUMIDITY,
+    )
+    hass.states.async_set(temp.entity_id, "20.0")
+    hass.states.async_set(humidity.entity_id, "44.0")
+
+    primary_entry = await _create_runtime_role_entry(
+        hass,
+        role_name="Garden",
+        device_id=device.id,
+        mappings=[
+            _make_mapping(
+                slot="sensor_temperature",
+                source_unique_id=temp.unique_id,
+                source_entity_id=temp.entity_id,
+                domain="sensor",
+                device_class="temperature",
+            )
+        ],
+    )
+    await _create_runtime_role_entry(
+        hass,
+        role_name="Garden 2",
+        device_id=device.id,
+        mappings=[
+            _make_mapping(
+                slot="sensor_humidity",
+                source_unique_id=humidity.unique_id,
+                source_entity_id=humidity.entity_id,
+                domain="sensor",
+                device_class="humidity",
+            )
+        ],
+    )
+
+    with pytest.raises(ServiceValidationError, match="already claimed"):
+        await hass.services.async_call(
+            DOMAIN,
+            "configure_entities",
+            {
+                "config_entry_id": primary_entry.entry_id,
+                "entity_ids": [temp.entity_id, humidity.entity_id],
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_configure_entities_service_rejects_wrong_device_entity(
+    hass: HomeAssistant,
+) -> None:
+    """configure_entities rejects entities from another physical device."""
+    device_a = _create_source_device(
+        hass,
+        name="Garden Sensor",
+        identifiers={("test", "garden_sensor_wrong_device_a")},
+    )
+    device_b = _create_source_device(
+        hass,
+        name="Porch Sensor",
+        identifiers={("test", "garden_sensor_wrong_device_b")},
+    )
+    temp = _create_source_entity(
+        hass,
+        device_id=device_a.id,
+        domain="sensor",
+        unique_id="garden_temp_wrong_device",
+        object_id="garden_sensor_wrong_device_temperature",
+        original_name="Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    humidity = _create_source_entity(
+        hass,
+        device_id=device_b.id,
+        domain="sensor",
+        unique_id="porch_humidity_wrong_device",
+        object_id="porch_sensor_wrong_device_humidity",
+        original_name="Humidity",
+        device_class=SensorDeviceClass.HUMIDITY,
+    )
+    hass.states.async_set(temp.entity_id, "20.0")
+    hass.states.async_set(humidity.entity_id, "44.0")
+
+    entry = _make_role_entry(
+        role_name="Garden",
+        device_id=device_a.id,
+        mappings=[
+            _make_mapping(
+                slot="sensor_temperature",
+                source_unique_id=temp.unique_id,
+                source_entity_id=temp.entity_id,
+                domain="sensor",
+                device_class="temperature",
+            )
+        ],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError, match="does not belong to device"):
+        await hass.services.async_call(
+            DOMAIN,
+            "configure_entities",
+            {
+                "config_entry_id": entry.entry_id,
+                "entity_ids": [temp.entity_id, humidity.entity_id],
+            },
+            blocking=True,
+            return_response=True,
+        )
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -537,6 +816,264 @@ async def test_reassign_service_preserves_accumulator_history(
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
+async def test_reassign_service_rejects_invalid_config_entry_id(
+    hass: HomeAssistant,
+) -> None:
+    """reassign translates invalid config entry IDs into service errors."""
+    device = _create_source_device(
+        hass,
+        name="Plug B",
+        identifiers={("test", "plug_invalid_entry")},
+    )
+    energy = _create_source_entity(
+        hass,
+        device_id=device.id,
+        domain="sensor",
+        unique_id="plug_invalid_entry_energy",
+        object_id="plug_invalid_entry_energy",
+        original_name="Energy",
+        device_class=SensorDeviceClass.ENERGY,
+        unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+    )
+    hass.states.async_set(
+        energy.entity_id,
+        "500.0",
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
+    )
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError, match="was not found"):
+        await hass.services.async_call(
+            DOMAIN,
+            "reassign",
+            {
+                "config_entry_id": "missing-entry",
+                "device_id": device.id,
+                "assignments": [
+                    {
+                        "role_entity_id": "sensor.projector_energy",
+                        "entity_id": energy.entity_id,
+                    }
+                ],
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_reassign_service_rejects_wrong_domain_assignment(
+    hass: HomeAssistant,
+) -> None:
+    """reassign rejects assignments whose source domain does not match."""
+    device_a = _create_source_device(
+        hass,
+        name="Projector Plug",
+        identifiers={("test", "projector_reassign_domain_a")},
+    )
+    switch_a = _create_source_entity(
+        hass,
+        device_id=device_a.id,
+        domain="switch",
+        unique_id="projector_reassign_domain_switch_a",
+        object_id="projector_reassign_domain_switch_a",
+        original_name="Switch",
+    )
+    hass.states.async_set(switch_a.entity_id, "off")
+
+    entry = await _create_runtime_role_entry(
+        hass,
+        role_name="Projector",
+        device_id=device_a.id,
+        mappings=[
+            _make_mapping(
+                slot="switch",
+                source_unique_id=switch_a.unique_id,
+                source_entity_id=switch_a.entity_id,
+                domain="switch",
+            )
+        ],
+    )
+
+    device_b = _create_source_device(
+        hass,
+        name="Projector Meter",
+        identifiers={("test", "projector_reassign_domain_b")},
+    )
+    temp_b = _create_source_entity(
+        hass,
+        device_id=device_b.id,
+        domain="sensor",
+        unique_id="projector_reassign_domain_temp_b",
+        object_id="projector_reassign_domain_temp_b",
+        original_name="Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    hass.states.async_set(temp_b.entity_id, "22.0")
+
+    with pytest.raises(ServiceValidationError, match="can only be reassigned"):
+        await hass.services.async_call(
+            DOMAIN,
+            "reassign",
+            {
+                "config_entry_id": entry.entry_id,
+                "device_id": device_b.id,
+                "assignments": [
+                    {
+                        "role_entity_id": "switch.projector_switch",
+                        "entity_id": temp_b.entity_id,
+                    }
+                ],
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_reassign_service_rejects_wrong_device_class_assignment(
+    hass: HomeAssistant,
+) -> None:
+    """reassign rejects assignments whose device class does not match."""
+    device_a = _create_source_device(
+        hass,
+        name="Projector Sensor",
+        identifiers={("test", "projector_reassign_class_a")},
+    )
+    temp_a = _create_source_entity(
+        hass,
+        device_id=device_a.id,
+        domain="sensor",
+        unique_id="projector_reassign_class_temp_a",
+        object_id="projector_reassign_class_temp_a",
+        original_name="Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    hass.states.async_set(temp_a.entity_id, "22.0")
+
+    entry = await _create_runtime_role_entry(
+        hass,
+        role_name="Projector",
+        device_id=device_a.id,
+        mappings=[
+            _make_mapping(
+                slot="sensor_temperature",
+                source_unique_id=temp_a.unique_id,
+                source_entity_id=temp_a.entity_id,
+                domain="sensor",
+                device_class="temperature",
+            )
+        ],
+    )
+
+    device_b = _create_source_device(
+        hass,
+        name="Projector Sensor B",
+        identifiers={("test", "projector_reassign_class_b")},
+    )
+    humidity_b = _create_source_entity(
+        hass,
+        device_id=device_b.id,
+        domain="sensor",
+        unique_id="projector_reassign_class_humidity_b",
+        object_id="projector_reassign_class_humidity_b",
+        original_name="Humidity",
+        device_class=SensorDeviceClass.HUMIDITY,
+    )
+    hass.states.async_set(humidity_b.entity_id, "44.0")
+
+    with pytest.raises(ServiceValidationError, match="requires a 'temperature'"):
+        await hass.services.async_call(
+            DOMAIN,
+            "reassign",
+            {
+                "config_entry_id": entry.entry_id,
+                "device_id": device_b.id,
+                "assignments": [
+                    {
+                        "role_entity_id": "sensor.projector_temperature",
+                        "entity_id": humidity_b.entity_id,
+                    }
+                ],
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_reassign_service_rejects_unknown_role_entity_id(
+    hass: HomeAssistant,
+) -> None:
+    """reassign rejects role_entity_ids that do not belong to the role."""
+    device_a = _create_source_device(
+        hass,
+        name="Projector Sensor",
+        identifiers={("test", "projector_reassign_unknown_role_a")},
+    )
+    temp_a = _create_source_entity(
+        hass,
+        device_id=device_a.id,
+        domain="sensor",
+        unique_id="projector_reassign_unknown_role_temp_a",
+        object_id="projector_reassign_unknown_role_temp_a",
+        original_name="Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    hass.states.async_set(temp_a.entity_id, "22.0")
+
+    entry = await _create_runtime_role_entry(
+        hass,
+        role_name="Projector",
+        device_id=device_a.id,
+        mappings=[
+            _make_mapping(
+                slot="sensor_temperature",
+                source_unique_id=temp_a.unique_id,
+                source_entity_id=temp_a.entity_id,
+                domain="sensor",
+                device_class="temperature",
+            )
+        ],
+    )
+
+    device_b = _create_source_device(
+        hass,
+        name="Projector Sensor B",
+        identifiers={("test", "projector_reassign_unknown_role_b")},
+    )
+    temp_b = _create_source_entity(
+        hass,
+        device_id=device_b.id,
+        domain="sensor",
+        unique_id="projector_reassign_unknown_role_temp_b",
+        object_id="projector_reassign_unknown_role_temp_b",
+        original_name="Temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+    )
+    hass.states.async_set(temp_b.entity_id, "23.0")
+
+    with pytest.raises(ServiceValidationError, match="does not belong to role"):
+        await hass.services.async_call(
+            DOMAIN,
+            "reassign",
+            {
+                "config_entry_id": entry.entry_id,
+                "device_id": device_b.id,
+                "assignments": [
+                    {
+                        "role_entity_id": "sensor.not_this_role_temperature",
+                        "entity_id": temp_b.entity_id,
+                    }
+                ],
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
 async def test_delete_role_service_removes_entry_and_accumulator_state(
     hass: HomeAssistant,
 ) -> None:
@@ -606,6 +1143,24 @@ async def test_delete_role_service_removes_entry_and_accumulator_state(
     assert hass.config_entries.async_get_entry(entry.entry_id) is None
     assert hass.states.get(role_entity_id) is None
     assert f"{entry.entry_id}_sensor_energy" not in store_manager._accumulators
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_delete_role_service_rejects_invalid_config_entry_id(
+    hass: HomeAssistant,
+) -> None:
+    """delete_role translates invalid config entry IDs into service errors."""
+    assert await async_setup_component(hass, DOMAIN, {})
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError, match="was not found"):
+        await hass.services.async_call(
+            DOMAIN,
+            "delete_role",
+            {"config_entry_id": "missing-entry"},
+            blocking=True,
+            return_response=True,
+        )
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")

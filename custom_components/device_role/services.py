@@ -103,7 +103,11 @@ async def _async_handle_create_role(call: ServiceCall) -> dict[str, object]:
 
 async def _async_handle_set_active(call: ServiceCall) -> dict[str, object]:
     """Set a role active or inactive."""
-    entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+    try:
+        entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+    except RoleManagerError as err:
+        _raise_service_error(err)
+
     new_data = dict(entry.data)
     new_data[CONF_ACTIVE] = call.data[CONF_ACTIVE]
     entry = await async_update_role_entry(call.hass, entry, new_data)
@@ -112,8 +116,8 @@ async def _async_handle_set_active(call: ServiceCall) -> dict[str, object]:
 
 async def _async_handle_configure_entities(call: ServiceCall) -> dict[str, object]:
     """Update the entity set for an existing role."""
-    entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
     try:
+        entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
         mappings = build_configured_mappings(
             call.hass,
             entry.data[CONF_DEVICE_ID],
@@ -133,10 +137,9 @@ async def _async_handle_configure_entities(call: ServiceCall) -> dict[str, objec
 
 async def _async_handle_reassign(call: ServiceCall) -> dict[str, object]:
     """Reassign a role to a different physical device."""
-    entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
-    device_id = call.data[CONF_DEVICE_ID]
-
     try:
+        entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+        device_id = call.data[CONF_DEVICE_ID]
         new_mappings = build_reassignment_mappings(
             call.hass,
             entry,
@@ -157,7 +160,11 @@ async def _async_handle_reassign(call: ServiceCall) -> dict[str, object]:
 
 async def _async_handle_delete_role(call: ServiceCall) -> dict[str, object]:
     """Delete a role config entry."""
-    entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+    try:
+        entry = get_device_role_entry(call.hass, call.data["config_entry_id"])
+    except RoleManagerError as err:
+        _raise_service_error(err)
+
     response = {
         "config_entry_id": entry.entry_id,
         "name": entry.data.get(CONF_ROLE_NAME, entry.title),
