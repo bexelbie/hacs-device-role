@@ -436,13 +436,6 @@ async def test_options_flow_reassign_device(hass: HomeAssistant) -> None:
         result["flow_id"],
         {CONF_DEVICE_ID: device_b.id},
     )
-    assert result["step_id"] == "select_entities"
-
-    # Select temperature from device B
-    result = await hass.config_entries.options.async_configure(
-        result["flow_id"],
-        {"entities": [temp_b.entity_id]},
-    )
     assert result["type"] == "create_entry"
     await hass.async_block_till_done()
 
@@ -451,6 +444,122 @@ async def test_options_flow_reassign_device(hass: HomeAssistant) -> None:
     role_state = hass.states.get("sensor.balcony_temperature")
     assert role_state is not None
     assert role_state.state == "18.0"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_options_flow_reassign_ambiguous_mapping_requires_explicit_assignment(
+    hass: HomeAssistant,
+) -> None:
+    """Ambiguous reassignment shows a logical-entity mapping step."""
+    device_reg = dr.async_get(hass)
+    entity_reg = er.async_get(hass)
+
+    source_a = MockConfigEntry(domain="test", title="source a")
+    source_a.add_to_hass(hass)
+    device_a = device_reg.async_get_or_create(
+        config_entry_id=source_a.entry_id,
+        identifiers={("test", "ambiguous_a")},
+        name="Ambient A",
+    )
+    temp_a_1 = entity_reg.async_get_or_create(
+        "sensor",
+        "test",
+        "ambiguous_a_temp_1",
+        suggested_object_id="ambient_a_temperature_1",
+        device_id=device_a.id,
+        original_device_class=SensorDeviceClass.TEMPERATURE,
+        original_name="Temperature 1",
+    )
+    temp_a_2 = entity_reg.async_get_or_create(
+        "sensor",
+        "test",
+        "ambiguous_a_temp_2",
+        suggested_object_id="ambient_a_temperature_2",
+        device_id=device_a.id,
+        original_device_class=SensorDeviceClass.TEMPERATURE,
+        original_name="Temperature 2",
+    )
+    hass.states.async_set(temp_a_1.entity_id, "22.0")
+    hass.states.async_set(temp_a_2.entity_id, "21.0")
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Balcony",
+        data={
+            CONF_ROLE_NAME: "Balcony",
+            CONF_DEVICE_ID: device_a.id,
+            CONF_ACTIVE: True,
+            CONF_ENTITY_MAPPINGS: [
+                {
+                    CONF_SLOT: "sensor_temperature",
+                    CONF_SOURCE_UNIQUE_ID: temp_a_1.unique_id,
+                    CONF_SOURCE_ENTITY_ID: temp_a_1.entity_id,
+                    CONF_DOMAIN: "sensor",
+                    CONF_DEVICE_CLASS: "temperature",
+                },
+                {
+                    CONF_SLOT: "sensor_temperature_2",
+                    CONF_SOURCE_UNIQUE_ID: temp_a_2.unique_id,
+                    CONF_SOURCE_ENTITY_ID: temp_a_2.entity_id,
+                    CONF_DOMAIN: "sensor",
+                    CONF_DEVICE_CLASS: "temperature",
+                },
+            ],
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    source_b = MockConfigEntry(domain="test", title="source b")
+    source_b.add_to_hass(hass)
+    device_b = device_reg.async_get_or_create(
+        config_entry_id=source_b.entry_id,
+        identifiers={("test", "ambiguous_b")},
+        name="Ambient B",
+    )
+    temp_b_1 = entity_reg.async_get_or_create(
+        "sensor",
+        "test",
+        "ambiguous_b_temp_1",
+        suggested_object_id="ambient_b_temperature_1",
+        device_id=device_b.id,
+        original_device_class=SensorDeviceClass.TEMPERATURE,
+        original_name="Temperature 1",
+    )
+    temp_b_2 = entity_reg.async_get_or_create(
+        "sensor",
+        "test",
+        "ambiguous_b_temp_2",
+        suggested_object_id="ambient_b_temperature_2",
+        device_id=device_b.id,
+        original_device_class=SensorDeviceClass.TEMPERATURE,
+        original_name="Temperature 2",
+    )
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ACTIVE: True, "change_device": True},
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_DEVICE_ID: device_b.id},
+    )
+
+    assert result["type"] == "form"
+    assert result["step_id"] == "map_entities"
+
+    entity_reg = er.async_get(hass)
+    role_entity_ids = {
+        entry.entity_id
+        for entry in er.async_entries_for_config_entry(
+            entity_reg, entry.entry_id
+        )
+        if entry.domain == "sensor"
+    }
+    schema_dict = dict(result["data_schema"].schema)
+    assert role_entity_ids == {str(key) for key in schema_dict}
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")

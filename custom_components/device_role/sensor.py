@@ -260,6 +260,19 @@ class AccumulatorStoreManager:
             self._accumulators[key] = SessionAccumulator()
         return self._accumulators[key]
 
+    def get_by_entry_slot(
+        self, entry_id: str, slot: str
+    ) -> SessionAccumulator | None:
+        """Get an accumulator by entry ID and slot name."""
+        return self._accumulators.get(f"{entry_id}_{slot}")
+
+    def commit_entry_slots(self, entry_id: str, slots: list[str]) -> None:
+        """Commit all active sessions for the provided entry slots."""
+        for slot in slots:
+            accumulator = self.get_by_entry_slot(entry_id, slot)
+            if accumulator is not None:
+                accumulator.commit_session()
+
     def remove_by_entry(self, entry_id: str) -> None:
         """Remove all accumulators belonging to a config entry."""
         prefix = f"{entry_id}_"

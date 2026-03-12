@@ -1,0 +1,117 @@
+list_roles:
+  name: List roles
+  description: Return all configured Device Role roles and their current logical-to-physical mappings.
+  fields: {}
+  response:
+    optional: false
+    description: >
+      Returns a `roles` list. Each role includes `config_entry_id`, `name`, `active`,
+      `device_id`, and `mappings`. Each mapping includes `slot`, `role_entity_id`,
+      `source_entity_id`, `source_unique_id`, `domain`, and `device_class`.
+
+create_role:
+  name: Create role
+  description: Create a new active Device Role role backed by a physical device.
+  fields:
+    name:
+      required: true
+      selector:
+        text:
+      description: Human-readable name for the new role, such as `Office` or `Projector`.
+      example: Office
+    device_id:
+      required: true
+      selector:
+        text:
+      description: Home Assistant device ID of the physical device that should back the role.
+    entity_ids:
+      required: true
+      selector:
+        object:
+      description: Complete list of source entity IDs to mirror through the role.
+      example:
+        - sensor.office_sensor_temperature
+        - sensor.office_sensor_humidity
+  response:
+    optional: true
+    description: Returns the created canonical role object in `role`.
+
+set_active:
+  name: Set active state
+  description: Activate or deactivate an existing Device Role role.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        text:
+      description: Config entry ID of the role to update.
+    active:
+      required: true
+      selector:
+        boolean:
+      description: Set to true to activate the role or false to deactivate it.
+  response:
+    optional: true
+    description: Returns the updated canonical role object in `role`.
+
+configure_entities:
+  name: Configure entities
+  description: Replace the mirrored source entities for a role without changing the backing device.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        text:
+      description: Config entry ID of the role to update.
+    entity_ids:
+      required: true
+      selector:
+        object:
+      description: Complete list of source entity IDs to mirror from the current backing device.
+  response:
+    optional: true
+    description: Returns the updated canonical role object in `role`.
+
+reassign:
+  name: Reassign role
+  description: Move a role to a different physical device while preserving the logical role entities that are explicitly reassigned.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        text:
+      description: Config entry ID of the role to move.
+    device_id:
+      required: true
+      selector:
+        text:
+      description: Home Assistant device ID of the new physical device.
+    assignments:
+      required: true
+      selector:
+        object:
+      description: >
+        Complete list of logical role-entity assignments to keep. Each item must contain
+        `role_entity_id` and `entity_id`. Omit a current role entity to remove it during
+        reassignment.
+      example:
+        - role_entity_id: sensor.projector_energy
+          entity_id: sensor.new_plug_energy
+        - role_entity_id: switch.projector_switch
+          entity_id: switch.new_plug_switch
+  response:
+    optional: true
+    description: Returns the updated canonical role object in `role`.
+
+delete_role:
+  name: Delete role
+  description: Permanently remove a Device Role role, all of its role entities, and any stored accumulator state.
+  fields:
+    config_entry_id:
+      required: true
+      selector:
+        text:
+      description: Config entry ID of the role to delete.
+  response:
+    optional: true
+    description: Returns the deleted role's `config_entry_id` and `name`.
