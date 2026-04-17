@@ -16,9 +16,9 @@ on:
         default: 'stable'
         type: string
   schedule:
-    # Weekly Monday 6am UTC: test against HA beta to catch breaking changes
+    # Weekly Wednesday 6am UTC: test against HA beta to catch breaking changes
     # before they hit stable. GitHub emails repo owner on failure.
-    - cron: '0 6 * * 1'
+    - cron: '0 6 * * 3'
 
 permissions:
   contents: read
