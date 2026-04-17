@@ -121,6 +121,11 @@ def test_deactivate_commit_survives_restart(ha_client, ha_bootstrap, restart_ha)
             client.wait_for_ready(timeout=120)
             client.onboard_and_authenticate()
 
+            # Wait for the device_role integration to finish setting up
+            # entities after restart. The API is reachable before custom
+            # integrations have loaded.
+            client.wait_for_entity("sensor.e2e_role_energy", timeout=60)
+
             # Energy sensor should be frozen (available but not updating).
             state = client.get_state("sensor.e2e_role_energy")
             assert state is not None

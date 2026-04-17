@@ -252,13 +252,19 @@ def ha_client(ha_bootstrap):
 
 @pytest.fixture
 def restart_ha():
-    """Return a callable that restarts the HA container and waits for ready."""
+    """Return a callable that restarts the HA container and waits for ready.
+
+    After the API is reachable and auth is complete, also waits for the
+    fake_device.set_value service to be registered so tests can call it
+    immediately without a startup race.
+    """
     def _restart():
         _restart_container()
         client = HAClient(HA_URL)
         try:
             client.wait_for_ready(timeout=120)
             client.onboard_and_authenticate()
+            client.wait_for_service("fake_device", "set_value", timeout=60)
         finally:
             client.close()
 

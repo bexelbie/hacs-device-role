@@ -51,6 +51,45 @@ class HAClient:
             time.sleep(poll_interval)
         raise TimeoutError(f"HA did not become ready within {timeout}s")
 
+    def wait_for_service(
+        self, domain: str, service: str, timeout: float = 60, poll_interval: float = 2,
+    ) -> None:
+        """Poll GET /api/services until a specific service is registered."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                resp = self._session.get(
+                    f"{self._base_url}/api/services",
+                    headers=self._headers(),
+                    timeout=5,
+                )
+                if resp.status_code == 200:
+                    for entry in resp.json():
+                        if entry.get("domain") == domain and service in entry.get("services", {}):
+                            _LOGGER.info("Service %s.%s is available", domain, service)
+                            return
+            except (requests.ConnectionError, ValueError):
+                pass
+            time.sleep(poll_interval)
+        raise TimeoutError(
+            f"Service {domain}.{service} did not appear within {timeout}s"
+        )
+
+    def wait_for_entity(
+        self, entity_id: str, timeout: float = 60, poll_interval: float = 2,
+    ) -> dict:
+        """Poll GET /api/states/<entity_id> until the entity exists."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            state = self.get_state(entity_id)
+            if state is not None:
+                _LOGGER.info("Entity %s is available", entity_id)
+                return state
+            time.sleep(poll_interval)
+        raise TimeoutError(
+            f"Entity {entity_id} did not appear within {timeout}s"
+        )
+
     def onboard_and_authenticate(self) -> None:
         """Complete onboarding (if needed) and obtain an access token."""
         # Check if onboarding is needed
