@@ -20,6 +20,7 @@ from custom_components.device_role.const import (
     CONF_SLOT,
     CONF_SOURCE_ENTITY_ID,
     CONF_SOURCE_UNIQUE_ID,
+    CONF_STATE_CLASS,
     DOMAIN,
 )
 
@@ -74,6 +75,7 @@ def _make_energy_role(
                     CONF_SOURCE_ENTITY_ID: source_entity_id,
                     CONF_DOMAIN: "sensor",
                     CONF_DEVICE_CLASS: "energy",
+                    CONF_STATE_CLASS: "total_increasing",
                 },
             ],
         },

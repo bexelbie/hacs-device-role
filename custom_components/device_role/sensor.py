@@ -76,11 +76,20 @@ async def async_setup_entry(
         if source_state_class is None:
             source_state_class = mapping.get(CONF_STATE_CLASS)
         source_uom = ""
+        if source_reg and source_reg.capabilities:
+            source_uom = source_reg.capabilities.get(
+                "native_unit_of_measurement", ""
+            ) or ""
+        if not source_uom and source_reg:
+            source_uom = source_reg.unit_of_measurement or ""
         source_state = hass.states.get(source_entity_id)
         if source_state is not None:
             if source_state_class is None:
                 source_state_class = source_state.attributes.get("state_class")
-            source_uom = source_state.attributes.get("unit_of_measurement", "")
+            if not source_uom:
+                source_uom = source_state.attributes.get(
+                    "unit_of_measurement", ""
+                )
 
         use_accumulator = source_state_class == "total_increasing"
 
@@ -458,3 +467,6 @@ class RoleAccumulatingSensor(SensorEntity):
 
         self._accumulator.update(reading)
         self._attr_native_value = self._accumulator.role_value
+        # Set unit now in case it wasn't available at init time
+        if current_unit and not self._attr_native_unit_of_measurement:
+            self._attr_native_unit_of_measurement = current_unit
