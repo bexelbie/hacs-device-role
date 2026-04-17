@@ -491,6 +491,78 @@ async def test_energy_session_committed_on_mapping_removal(
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
+async def test_accumulator_gets_uom_from_registry_when_state_unavailable(
+    hass: HomeAssistant,
+) -> None:
+    """Test that UOM is set from entity registry when source state isn't available at setup."""
+    device, entity_entry = _setup_physical_energy_sensor(hass)
+    # Do NOT set source state — simulates source entity not loaded yet at startup
+
+    entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.projector_energy")
+    assert role_state is not None
+    # Even without source state, UOM should come from entity registry
+    assert role_state.attributes.get("unit_of_measurement") == "kWh"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_accumulator_gets_uom_on_resumed_session(
+    hass: HomeAssistant,
+) -> None:
+    """Test that UOM is set when resuming a session even if state was missing at init."""
+    device, entity_entry = _setup_physical_energy_sensor(hass)
+    hass.states.async_set(
+        entity_entry.entity_id, "100.0",
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
+    )
+
+    entry = _make_energy_role(device.id, entity_entry.unique_id, entity_entry.entity_id)
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Accumulate 10 kWh, then save and unload
+    hass.states.async_set(
+        entity_entry.entity_id, "110.0",
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
+    )
+    await hass.async_block_till_done()
+
+    store_manager = hass.data[DOMAIN]["store_manager"]
+    await store_manager.async_save_now()
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Remove source state to simulate restart race where source hasn't loaded yet
+    hass.states.async_remove(entity_entry.entity_id)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.projector_energy")
+    assert role_state is not None
+    # UOM must be set even though source state wasn't available at reload
+    assert role_state.attributes.get("unit_of_measurement") == "kWh"
+
+    # Now source state arrives — role should still track correctly
+    hass.states.async_set(
+        entity_entry.entity_id, "115.0",
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
+    )
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.projector_energy")
+    assert role_state.attributes.get("unit_of_measurement") == "kWh"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
 async def test_reassignment_blocked_on_unit_mismatch(
     hass: HomeAssistant,
 ) -> None:
