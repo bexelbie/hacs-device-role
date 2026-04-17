@@ -222,6 +222,7 @@ def ha_bootstrap(config_dir):
     try:
         client.wait_for_ready(timeout=120)
         client.onboard_and_authenticate()
+        client.wait_for_service("fake_device", "set_value", timeout=60)
     except Exception:
         _dump_container_logs()
         raise
@@ -246,6 +247,7 @@ def ha_client(ha_bootstrap):
     client = HAClient(HA_URL)
     client.wait_for_ready(timeout=60)
     client.onboard_and_authenticate()
+    client.wait_for_service("fake_device", "set_value", timeout=60)
     yield client
     client.close()
 
