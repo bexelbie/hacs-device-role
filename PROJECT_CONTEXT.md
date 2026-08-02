@@ -1,3 +1,9 @@
+---
+kind: hacs-integration
+purpose: Home Assistant custom integration that makes a "device role" a stable entity anchor across physical device replacements
+visibility: public
+---
+
 # Device Role — Developer Reference
 
 ## Tech Stack
@@ -101,10 +107,7 @@ The release workflow (`release.yml`) runs unit tests, validates that
 `manifest.json` version matches the tag, then creates a GitHub Release.
 Pre-release detection is automatic based on `-` in the tag name.
 
-## Known Limitations
+## Known Design Decisions
 
-- **TOCTOU race in entity claim checks**: Concurrent config flows could both
-  pass claim validation. Documented, not fixed (YAGNI — user-driven UI, same
-  pattern as all HA flows).
 - **Slot-name orphaning on reassignment**: If the new device has different
   entity types, old slot history is orphaned in storage. By design.
