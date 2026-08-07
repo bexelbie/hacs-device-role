@@ -126,10 +126,14 @@ def discover_fake_device_ids(config_dir: str | Path, entry_id: str) -> dict:
             "Device/entity registry not found. Has HA booted at least once?"
         )
 
-    # Find device by config_entry_id
+    # Match the config entry that owns the device. HA persists the owner as
+    # primary_config_entry; config_entries is a list HA may drop in a future
+    # storage version, so it's only a fallback.
     device_id = None
     for device in device_reg.get("data", {}).get("devices", []):
-        if entry_id in device.get("config_entries", []):
+        if entry_id == device.get("primary_config_entry") or entry_id in device.get(
+            "config_entries", []
+        ):
             device_id = device["id"]
             break
 
