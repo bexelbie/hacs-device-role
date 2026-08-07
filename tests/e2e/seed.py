@@ -129,7 +129,7 @@ def discover_fake_device_ids(config_dir: str | Path, entry_id: str) -> dict:
     # Find device by config_entry_id
     device_id = None
     for device in device_reg.get("data", {}).get("devices", []):
-        if entry_id in device.get("config_entries", []):
+        if device.get("config_entry_id") == entry_id:
             device_id = device["id"]
             break
 
