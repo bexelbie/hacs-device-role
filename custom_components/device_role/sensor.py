@@ -193,7 +193,13 @@ class RoleMeasurementSensor(SensorEntity):
     @property
     def available(self) -> bool:
         """Return True if the role is active."""
-        return self._active
+        if not self._active:
+            return False
+        source_state = self.hass.states.get(self._source_entity_id)
+        if source_state is None:
+            # ponytail: A missing source means awaiting reassignment; keep role metadata available.
+            return True
+        return source_state.state != STATE_UNAVAILABLE
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to source entity state changes."""

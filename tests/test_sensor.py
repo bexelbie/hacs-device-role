@@ -190,10 +190,10 @@ async def test_enum_sensor_mirrors_state_and_options(hass: HomeAssistant) -> Non
 
     hass.states.async_set(entity_entry.entity_id, STATE_UNAVAILABLE)
     await hass.async_block_till_done()
+    assert hass.states.get(entity_entry.entity_id).state == STATE_UNAVAILABLE
     role_state = hass.states.get("sensor.balcony_quality")
     assert role_state is not None
-    assert role_state.state == STATE_UNKNOWN
-    assert role_state.attributes["options"] == options
+    assert role_state.state == STATE_UNAVAILABLE
 
     hass.states.async_set(entity_entry.entity_id, "high", {"options": options})
     await hass.async_block_till_done()
@@ -207,6 +207,63 @@ async def test_enum_sensor_mirrors_state_and_options(hass: HomeAssistant) -> Non
     role_state = hass.states.get("sensor.balcony_quality")
     assert role_state is not None
     assert role_state.state == STATE_UNKNOWN
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_enum_sensor_stays_available_when_source_removed(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a role keeps enum metadata while awaiting reassignment."""
+    device, entity_entry, options = _setup_enum_device(hass)
+    hass.states.async_set(
+        entity_entry.entity_id, "low", {"options": options, "device_class": "enum"}
+    )
+
+    entry = _make_role_entry(
+        device.id,
+        entity_entry.unique_id,
+        entity_entry.entity_id,
+        slot="sensor_quality",
+        device_class="enum",
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    hass.states.async_remove(entity_entry.entity_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.balcony_quality")
+    assert role_state is not None
+    assert role_state.state == STATE_UNKNOWN
+    assert role_state.attributes["device_class"] == "enum"
+    assert role_state.attributes["options"] == options
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_numeric_sensor_stays_available_when_source_removed(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a role keeps its unit while awaiting reassignment."""
+    device, entity_entry = _setup_physical_device(hass)
+    hass.states.async_set(
+        entity_entry.entity_id, "22.5", {"unit_of_measurement": "°C"}
+    )
+
+    entry = _make_role_entry(device.id, entity_entry.unique_id, entity_entry.entity_id)
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    hass.states.async_remove(entity_entry.entity_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.balcony_temperature")
+    assert role_state is not None
+    assert role_state.state == STATE_UNKNOWN
+    assert role_state.attributes["unit_of_measurement"] == "°C"
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
