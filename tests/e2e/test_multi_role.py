@@ -52,13 +52,44 @@ def test_source_unavailable_propagates_to_role(ha_client):
         "value": "unavailable",
     })
 
-    # Role entity should show "unknown" (entity is available but has no value)
+    # An unreachable source makes the role unavailable, not unknown
+    state = ha_client.wait_for_state(
+        "sensor.e2e_role_2_humidity", "unavailable", timeout=15,
+    )
+    assert state is not None
+
+    # Restore source and verify role recovers
+    ha_client.call_service("fake_device", "set_value", {
+        "entity_id": "sensor.test_plug_humidity",
+        "value": 60.0,
+    })
+    state = ha_client.wait_for_state(
+        "sensor.e2e_role_2_humidity", "60.0", timeout=15,
+    )
+    assert state is not None
+
+
+@pytest.mark.usefixtures("ha_bootstrap")
+def test_source_unknown_propagates_to_role(ha_client):
+    """A source reporting unknown leaves the role available with no value."""
+    ha_client.call_service("fake_device", "set_value", {
+        "entity_id": "sensor.test_plug_humidity",
+        "value": 55.0,
+    })
+    ha_client.wait_for_state(
+        "sensor.e2e_role_2_humidity", "55.0", timeout=15,
+    )
+
+    ha_client.call_service("fake_device", "set_value", {
+        "entity_id": "sensor.test_plug_humidity",
+        "value": "unknown",
+    })
+
     state = ha_client.wait_for_state(
         "sensor.e2e_role_2_humidity", "unknown", timeout=15,
     )
     assert state is not None
 
-    # Restore source and verify role recovers
     ha_client.call_service("fake_device", "set_value", {
         "entity_id": "sensor.test_plug_humidity",
         "value": 60.0,
