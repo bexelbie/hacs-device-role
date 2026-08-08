@@ -15,6 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
+from homeassistant.util import dt as dt_util
 
 from .accumulator import SessionAccumulator
 from .const import (
@@ -90,6 +91,11 @@ async def async_setup_entry(
                 source_uom = source_state.attributes.get(
                     "unit_of_measurement", ""
                 )
+        source_options = None
+        if source_reg and source_reg.capabilities:
+            source_options = source_reg.capabilities.get("options")
+        if not source_options and source_state is not None:
+            source_options = source_state.attributes.get("options")
 
         use_accumulator = source_state_class == "total_increasing"
 
@@ -122,6 +128,7 @@ async def async_setup_entry(
                     source_name=source_name,
                     device_class_str=device_class_str,
                     state_class_str=source_state_class,
+                    source_options=source_options,
                     active=active,
                     via_device_id=via,
                 )
@@ -146,6 +153,7 @@ class RoleMeasurementSensor(SensorEntity):
         active: bool,
         source_name: str | None = None,
         state_class_str: str | None = None,
+        source_options: list[str] | None = None,
         via_device_id: tuple | None = None,
     ) -> None:
         """Initialize the role measurement sensor."""
@@ -167,6 +175,9 @@ class RoleMeasurementSensor(SensorEntity):
                 self._attr_device_class = None
         else:
             self._attr_device_class = None
+
+        if self._attr_device_class == SensorDeviceClass.ENUM and source_options:
+            self._attr_options = list(source_options)
 
         if state_class_str:
             try:
@@ -233,10 +244,22 @@ class RoleMeasurementSensor(SensorEntity):
             self._attr_native_value = None
             return
 
-        try:
-            self._attr_native_value = float(source_state.state)
-        except (ValueError, TypeError):
-            self._attr_native_value = None
+        if self.device_class == SensorDeviceClass.ENUM:
+            self._attr_native_value = source_state.state
+            if options := source_state.attributes.get("options"):
+                self._attr_options = list(options)
+        else:
+            try:
+                self._attr_native_value = float(source_state.state)
+            except (ValueError, TypeError):
+                if self.device_class == SensorDeviceClass.TIMESTAMP:
+                    self._attr_native_value = dt_util.parse_datetime(
+                        source_state.state
+                    )
+                elif self.device_class == SensorDeviceClass.DATE:
+                    self._attr_native_value = dt_util.parse_date(source_state.state)
+                else:
+                    self._attr_native_value = source_state.state
 
         # Copy unit of measurement from source
         if uom := source_state.attributes.get("unit_of_measurement"):

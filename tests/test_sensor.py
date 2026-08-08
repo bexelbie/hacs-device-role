@@ -4,7 +4,7 @@
 import pytest
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
-from homeassistant.const import UnitOfTemperature, STATE_UNAVAILABLE
+from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
@@ -58,8 +58,10 @@ def _make_role_entry(
     source_entity_id: str,
     active: bool = True,
     role_name: str = "Balcony",
+    slot: str = "sensor_temperature",
+    device_class: str = "temperature",
 ) -> MockConfigEntry:
-    """Create a mock config entry for a role with one temperature sensor."""
+    """Create a mock config entry for a role with one sensor."""
     return MockConfigEntry(
         domain=DOMAIN,
         title=role_name,
@@ -69,15 +71,50 @@ def _make_role_entry(
             CONF_ACTIVE: active,
             CONF_ENTITY_MAPPINGS: [
                 {
-                    CONF_SLOT: "sensor_temperature",
+                    CONF_SLOT: slot,
                     CONF_SOURCE_UNIQUE_ID: source_unique_id,
                     CONF_SOURCE_ENTITY_ID: source_entity_id,
                     CONF_DOMAIN: "sensor",
-                    CONF_DEVICE_CLASS: "temperature",
+                    CONF_DEVICE_CLASS: device_class,
                 },
             ],
         },
     )
+
+
+def _setup_enum_device(
+    hass: HomeAssistant,
+    options: list[str] | None = None,
+    register_options: bool = True,
+):
+    """Create a physical device with an enum sensor entity."""
+    device_reg = dr.async_get(hass)
+    entity_reg = er.async_get(hass)
+
+    source_entry = MockConfigEntry(domain="test", title="test source")
+    source_entry.add_to_hass(hass)
+
+    device = device_reg.async_get_or_create(
+        config_entry_id=source_entry.entry_id,
+        identifiers={("test", "enum_device")},
+        name="Enum Device",
+    )
+    options = options or ["low", "medium", "high"]
+    entity_kwargs = {
+        "device_id": device.id,
+        "original_device_class": SensorDeviceClass.ENUM,
+        "original_name": "Quality",
+    }
+    if register_options:
+        entity_kwargs["capabilities"] = {"options": options}
+    entity_entry = entity_reg.async_get_or_create(
+        "sensor",
+        "test",
+        "quality_1",
+        suggested_object_id="quality",
+        **entity_kwargs,
+    )
+    return device, entity_entry, options
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -123,6 +160,108 @@ async def test_measurement_sensor_tracks_changes(hass: HomeAssistant) -> None:
     role_state = hass.states.get(f"sensor.balcony_temperature")
     assert role_state is not None
     assert role_state.state == "25.3"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_enum_sensor_mirrors_state_and_options(hass: HomeAssistant) -> None:
+    """Test that a role sensor mirrors enum values and options."""
+    device, entity_entry, options = _setup_enum_device(hass)
+    hass.states.async_set(
+        entity_entry.entity_id, "low", {"options": options, "device_class": "enum"}
+    )
+
+    entry = _make_role_entry(
+        device.id,
+        entity_entry.unique_id,
+        entity_entry.entity_id,
+        slot="sensor_quality",
+        device_class="enum",
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.balcony_quality")
+    assert role_state is not None
+    assert role_state.state == "low"
+    assert role_state.attributes["options"] == options
+    assert role_state.attributes["device_class"] == "enum"
+
+    hass.states.async_set(entity_entry.entity_id, STATE_UNAVAILABLE)
+    await hass.async_block_till_done()
+    role_state = hass.states.get("sensor.balcony_quality")
+    assert role_state is not None
+    assert role_state.state == STATE_UNKNOWN
+    assert role_state.attributes["options"] == options
+
+    hass.states.async_set(entity_entry.entity_id, "high", {"options": options})
+    await hass.async_block_till_done()
+    role_state = hass.states.get("sensor.balcony_quality")
+    assert role_state is not None
+    assert role_state.state == "high"
+    assert role_state.attributes["options"] == options
+
+    hass.states.async_set(entity_entry.entity_id, STATE_UNKNOWN)
+    await hass.async_block_till_done()
+    role_state = hass.states.get("sensor.balcony_quality")
+    assert role_state is not None
+    assert role_state.state == STATE_UNKNOWN
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_enum_sensor_preserves_numeric_string_state(hass: HomeAssistant) -> None:
+    """Test that numeric-looking enum states remain strings."""
+    device, entity_entry, options = _setup_enum_device(
+        hass, options=["1", "2", "3"]
+    )
+    hass.states.async_set(
+        entity_entry.entity_id, "2", {"options": options, "device_class": "enum"}
+    )
+
+    entry = _make_role_entry(
+        device.id,
+        entity_entry.unique_id,
+        entity_entry.entity_id,
+        slot="sensor_quality",
+        device_class="enum",
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.balcony_quality")
+    assert role_state is not None
+    assert role_state.state == "2"
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_enum_sensor_uses_live_options_fallback(hass: HomeAssistant) -> None:
+    """Test that enum options are copied from live state attributes."""
+    device, entity_entry, options = _setup_enum_device(
+        hass, register_options=False
+    )
+    hass.states.async_set(
+        entity_entry.entity_id, "medium", {"options": options, "device_class": "enum"}
+    )
+
+    entry = _make_role_entry(
+        device.id,
+        entity_entry.unique_id,
+        entity_entry.entity_id,
+        slot="sensor_quality",
+        device_class="enum",
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.balcony_quality")
+    assert role_state is not None
+    assert role_state.state == "medium"
+    assert role_state.attributes["options"] == options
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
