@@ -81,7 +81,7 @@ class RoleSwitch(SwitchEntity):
         source_entity_id: str,
         active: bool,
         source_name: str | None = None,
-        via_device_id: tuple | None = None,
+        via_device_id: str | None = None,
     ) -> None:
         """Initialize the role switch."""
         self._entry = entry

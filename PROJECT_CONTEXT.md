@@ -10,7 +10,7 @@ visibility: public
 
 - **Language**: Python 3.12+
 - **Platform**: Home Assistant custom integration
-- **Target HA version**: 2026.1.0+
+- **Target HA version**: 2026.8.0+
 - **Testing**: pytest + pytest-homeassistant-custom-component
 - **CI**: GitHub Actions (unit tests on push, E2E on PR, release on tag)
 

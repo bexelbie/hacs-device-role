@@ -154,7 +154,7 @@ class RoleMeasurementSensor(SensorEntity):
         source_name: str | None = None,
         state_class_str: str | None = None,
         source_options: list[str] | None = None,
-        via_device_id: tuple | None = None,
+        via_device_id: str | None = None,
     ) -> None:
         """Initialize the role measurement sensor."""
         self._entry = entry
@@ -355,7 +355,7 @@ class RoleAccumulatingSensor(SensorEntity):
         device_class_str: str | None = None,
         source_uom: str | None = None,
         source_name: str | None = None,
-        via_device_id: tuple | None = None,
+        via_device_id: str | None = None,
     ) -> None:
         """Initialize the role accumulating sensor."""
         self._entry = entry

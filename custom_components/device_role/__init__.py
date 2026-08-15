@@ -5,7 +5,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
 
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_ROLE_NAME, DOMAIN, PLATFORMS
+from .helpers import canonicalize_role_device
 from .services import async_register_services
 from .sensor import AccumulatorStoreManager
 
@@ -20,6 +21,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up a device role from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+    canonicalize_role_device(
+        hass,
+        entry.entry_id,
+        entry.data[CONF_ROLE_NAME],
+        entry.data,
+    )
 
     # Create shared store manager on first entry
     if "store_manager" not in hass.data[DOMAIN]:
