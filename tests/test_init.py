@@ -4,7 +4,7 @@
 import pytest
 import attr
 
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP, MAJOR_VERSION, MINOR_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
@@ -295,6 +295,58 @@ async def test_role_from_main_device_behind_hub_keeps_via_link(
     role_device = device_reg.async_get(role_entry.device_id)
     assert role_device is not None
     assert role_device.via_device_id == device.id
+
+
+@pytest.mark.skipif(
+    (MAJOR_VERSION, MINOR_VERSION) < (2026, 9),
+    reason="requires Home Assistant 2026.9 child devices",
+)
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_role_from_child_device_omits_via_link(hass: HomeAssistant) -> None:
+    """A role sourced from a child device still loads without a parent link."""
+    source_entry = MockConfigEntry(domain="test", title="Child source")
+    source_entry.add_to_hass(hass)
+    device_reg = dr.async_get(hass)
+    parent = device_reg.async_get_or_create(
+        config_entry_id=source_entry.entry_id,
+        identifiers={("test", "parent_device")},
+        name="Parent Device",
+    )
+    child = device_reg.async_get_or_create_child(
+        config_entry_id=source_entry.entry_id,
+        identifiers={("test", "child_device")},
+        name="Child Device",
+        parent_device_id=parent.id,
+    )
+    source = er.async_get(hass).async_get_or_create(
+        "sensor",
+        "test",
+        "child_temperature",
+        suggested_object_id="child_temperature",
+        device_id=child.id,
+        original_name="Temperature",
+        original_device_class="temperature",
+    )
+    hass.states.async_set(source.entity_id, "22")
+
+    entry = _role_entry(
+        role_name="Projector",
+        device_id=child.id,
+        mappings=[_mapping(source, "sensor_temperature")],
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.projector_temperature")
+    assert role_state is not None
+    role_entry = er.async_get(hass).async_get("sensor.projector_temperature")
+    assert role_entry is not None
+    assert role_entry.device_id is not None
+    role_device = device_reg.async_get(role_entry.device_id)
+    assert role_device is not None
+    assert role_device.via_device_id is None
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
