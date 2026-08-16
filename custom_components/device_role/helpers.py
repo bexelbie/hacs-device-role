@@ -26,8 +26,6 @@ def resolve_via_device(hass: HomeAssistant, device_id: str) -> str | None:
     physical = device_reg.async_get(device_id)
     if not isinstance(physical, dr.DeviceEntry):
         return None
-    if physical.via_device_id is not None:
-        return None
     return physical.id
 
 
