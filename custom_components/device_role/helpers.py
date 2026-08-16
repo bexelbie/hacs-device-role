@@ -21,11 +21,14 @@ from .const import (
 def resolve_via_device(hass: HomeAssistant, device_id: str) -> str | None:
     """Return a registered concrete device ID for via_device_id linking."""
     device_reg = dr.async_get(hass)
-    if not device_id or device_reg.async_get(device_id) is None:
+    if not device_id or device_reg.async_is_composite_device_id(device_id) is True:
         return None
-    if device_reg.async_is_composite_device_id(device_id) is True:
+    physical = device_reg.async_get(device_id)
+    if not isinstance(physical, dr.DeviceEntry):
         return None
-    return device_id
+    if physical.via_device_id is not None:
+        return None
+    return physical.id
 
 
 def build_role_device_info(

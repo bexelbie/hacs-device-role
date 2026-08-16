@@ -20,6 +20,7 @@ from custom_components.device_role.const import (
     CONF_SLOT,
     CONF_SOURCE_ENTITY_ID,
     CONF_SOURCE_UNIQUE_ID,
+    CONF_STATE_CLASS,
     DEVICE_SPLIT_ISSUE,
     DOMAIN,
 )
@@ -46,6 +47,10 @@ def _create_source(
     *,
     name: str,
     identifier: str,
+    device_class: str = "temperature",
+    unit_of_measurement: str | None = None,
+    state_class: str | None = None,
+    initial_state: str = "22",
 ) -> tuple[dr.DeviceEntry, er.RegistryEntry]:
     """Create a physical device and one source sensor."""
     source_entry = MockConfigEntry(domain="test", title=f"{name} source")
@@ -62,9 +67,15 @@ def _create_source(
         suggested_object_id=f"{identifier}_temperature",
         device_id=device.id,
         original_name="Temperature",
-        original_device_class="temperature",
+        original_device_class=device_class,
+        unit_of_measurement=unit_of_measurement,
     )
-    hass.states.async_set(source.entity_id, "22")
+    attributes = {}
+    if unit_of_measurement is not None:
+        attributes["unit_of_measurement"] = unit_of_measurement
+    if state_class is not None:
+        attributes["state_class"] = state_class
+    hass.states.async_set(source.entity_id, initial_state, attributes)
     return device, source
 
 
@@ -87,15 +98,24 @@ def _role_entry(
     )
 
 
-def _mapping(source: er.RegistryEntry, slot: str) -> dict:
+def _mapping(
+    source: er.RegistryEntry,
+    slot: str,
+    *,
+    device_class: str = "temperature",
+    state_class: str | None = None,
+) -> dict:
     """Build a role source mapping."""
-    return {
+    mapping = {
         CONF_SLOT: slot,
         CONF_SOURCE_UNIQUE_ID: source.unique_id,
         CONF_SOURCE_ENTITY_ID: source.entity_id,
         CONF_DOMAIN: "sensor",
-        CONF_DEVICE_CLASS: "temperature",
+        CONF_DEVICE_CLASS: device_class,
     }
+    if state_class is not None:
+        mapping[CONF_STATE_CLASS] = state_class
+    return mapping
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
@@ -141,10 +161,22 @@ async def test_ambiguous_composite_role_keeps_entities_and_creates_targeted_repa
     """Different split source devices create only the role-specific repair."""
     device_reg = dr.async_get(hass)
     device_a, source_a = _create_source(
-        hass, name="Split Device A", identifier="split_device_a"
+        hass,
+        name="Split Device A",
+        identifier="split_device_a",
+        device_class="energy",
+        unit_of_measurement="kWh",
+        state_class="total_increasing",
+        initial_state="100",
     )
     device_b, source_b = _create_source(
-        hass, name="Split Device B", identifier="split_device_b"
+        hass,
+        name="Split Device B",
+        identifier="split_device_b",
+        device_class="energy",
+        unit_of_measurement="kWh",
+        state_class="total_increasing",
+        initial_state="200",
     )
     composite_id = "pre_2026_8_composite"
     _mark_device_as_split(device_reg, device_a, composite_id)
@@ -154,8 +186,18 @@ async def test_ambiguous_composite_role_keeps_entities_and_creates_targeted_repa
         role_name="Projector",
         device_id=composite_id,
         mappings=[
-            _mapping(source_a, "sensor_temperature"),
-            _mapping(source_b, "sensor_temperature_2"),
+            _mapping(
+                source_a,
+                "sensor_energy",
+                device_class="energy",
+                state_class="total_increasing",
+            ),
+            _mapping(
+                source_b,
+                "sensor_energy_2",
+                device_class="energy",
+                state_class="total_increasing",
+            ),
         ],
     )
     entry.add_to_hass(hass)
@@ -176,8 +218,81 @@ async def test_ambiguous_composite_role_keeps_entities_and_creates_targeted_repa
     assert issue.translation_key == DEVICE_SPLIT_ISSUE
     assert issue.severity.value == "warning"
     assert device_reg.async_get(role_device.id).via_device_id is None
-    assert hass.states.get("sensor.projector_temperature") is not None
-    assert hass.states.get("sensor.projector_temperature_2") is not None
+    entity_reg = er.async_get(hass)
+    role_energy_entity_id = entity_reg.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_sensor_energy"
+    )
+    assert role_energy_entity_id is not None
+    role_state = hass.states.get(role_energy_entity_id)
+    assert role_state is not None
+    assert float(role_state.state) == 0.0
+    role_energy_entity_id_2 = entity_reg.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_sensor_energy_2"
+    )
+    assert role_energy_entity_id_2 is not None
+    assert hass.states.get(role_energy_entity_id_2) is not None
+
+    hass.states.async_set(
+        source_a.entity_id,
+        "110",
+        {"unit_of_measurement": "kWh", "state_class": "total_increasing"},
+    )
+    await hass.async_block_till_done()
+    updated_role_state = hass.states.get(role_energy_entity_id)
+    assert updated_role_state is not None
+    assert float(updated_role_state.state) == 10.0
+
+    await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert ir.async_get(hass).async_get_issue(
+        DOMAIN, f"{DEVICE_SPLIT_ISSUE}_{entry.entry_id}"
+    ) is None
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_role_from_child_device_omits_via_link(hass: HomeAssistant) -> None:
+    """A role sourced from a child device still loads without a parent link."""
+    parent, _ = _create_source(
+        hass, name="Parent Device", identifier="parent_device"
+    )
+    source_entry = MockConfigEntry(domain="test", title="Child source")
+    source_entry.add_to_hass(hass)
+    device_reg = dr.async_get(hass)
+    child = device_reg.async_get_or_create(
+        config_entry_id=source_entry.entry_id,
+        identifiers={("test", "child_device")},
+        name="Child Device",
+        via_device_id=parent.id,
+    )
+    source = er.async_get(hass).async_get_or_create(
+        "sensor",
+        "test",
+        "child_temperature",
+        suggested_object_id="child_temperature",
+        device_id=child.id,
+        original_name="Temperature",
+        original_device_class="temperature",
+    )
+    hass.states.async_set(source.entity_id, "22")
+
+    entry = _role_entry(
+        role_name="Projector",
+        device_id=child.id,
+        mappings=[_mapping(source, "sensor_temperature")],
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    role_state = hass.states.get("sensor.projector_temperature")
+    assert role_state is not None
+    role_entry = er.async_get(hass).async_get("sensor.projector_temperature")
+    assert role_entry is not None
+    assert role_entry.device_id is not None
+    role_device = device_reg.async_get(role_entry.device_id)
+    assert role_device is not None
+    assert role_device.via_device_id is None
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
