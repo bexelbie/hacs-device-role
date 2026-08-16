@@ -1,5 +1,5 @@
 # ABOUTME: Tests for the shared helpers module.
-# ABOUTME: Covers resolve_via_device, build_role_device_info, and resolve_source_entity_id.
+# ABOUTME: Covers role device linking, canonicalization, and source resolution.
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -39,14 +39,14 @@ def _create_device(
 async def test_resolve_via_device_returns_identifier(
     hass: HomeAssistant, device_reg: dr.DeviceRegistry,
 ) -> None:
-    """resolve_via_device returns the first identifier tuple of the device."""
+    """resolve_via_device returns the exact registered device ID."""
     device = _create_device(
         hass, device_reg,
         identifiers={("zigbee", "0x1234")},
         name="Zigbee Plug",
     )
     result = resolve_via_device(hass, device.id)
-    assert result == ("zigbee", "0x1234")
+    assert result == device.id
 
 
 async def test_resolve_via_device_missing_device(hass: HomeAssistant) -> None:
@@ -64,7 +64,7 @@ async def test_resolve_via_device_empty_string(hass: HomeAssistant) -> None:
 async def test_resolve_via_device_no_identifiers(
     hass: HomeAssistant, device_reg: dr.DeviceRegistry,
 ) -> None:
-    """resolve_via_device returns None when device has no identifiers."""
+    """resolve_via_device links a concrete device without identifiers."""
     device = _create_device(
         hass, device_reg,
         identifiers=set(),
@@ -72,31 +72,32 @@ async def test_resolve_via_device_no_identifiers(
         name="MAC-only Device",
     )
     result = resolve_via_device(hass, device.id)
-    assert result is None
+    assert result == device.id
 
 
 def test_build_role_device_info_without_via() -> None:
-    """build_role_device_info without via_device omits the key."""
+    """build_role_device_info without via_device_id omits the key."""
     info = build_role_device_info("entry_123", "Projector")
     assert info == {
         "identifiers": {(DOMAIN, "entry_123")},
         "name": "Projector",
         "manufacturer": "Device Role",
     }
-    assert "via_device" not in info
+    assert "via_device_id" not in info
 
 
 def test_build_role_device_info_with_via() -> None:
-    """build_role_device_info with via_device includes the link."""
+    """build_role_device_info with via_device_id includes the exact link."""
     info = build_role_device_info(
-        "entry_123", "Projector", via_device_id=("zigbee", "0x1234"),
+        "entry_123", "Projector", via_device_id="physical_device_id",
     )
-    assert info["via_device"] == ("zigbee", "0x1234")
+    assert info["via_device_id"] == "physical_device_id"
+    assert "via_device" not in info
     assert info["identifiers"] == {(DOMAIN, "entry_123")}
     assert info["name"] == "Projector"
 
 
 def test_build_role_device_info_with_none_via() -> None:
-    """build_role_device_info with explicit None omits via_device."""
+    """build_role_device_info with explicit None omits via_device_id."""
     info = build_role_device_info("entry_123", "Projector", via_device_id=None)
-    assert "via_device" not in info
+    assert "via_device_id" not in info

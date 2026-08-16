@@ -80,7 +80,7 @@ class RoleBinarySensor(BinarySensorEntity):
         device_class_str: str | None,
         active: bool,
         source_name: str | None = None,
-        via_device_id: tuple | None = None,
+        via_device_id: str | None = None,
     ) -> None:
         """Initialize the role binary sensor."""
         self._entry = entry

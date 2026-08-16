@@ -60,5 +60,11 @@
       "entity_claimed": "One or more selected entities are already claimed by another active role.",
       "unit_mismatch": "New device has a different unit for an accumulating sensor. Delete and recreate the role to change units."
     }
+  },
+  "issues": {
+    "device_split": {
+      "title": "Device Role needs reconfiguration",
+      "description": "The role \"{role_name}\" is linked to a physical device that Home Assistant split into multiple devices. Reassign or reconfigure this role to choose the correct physical device."
+    }
   }
 }

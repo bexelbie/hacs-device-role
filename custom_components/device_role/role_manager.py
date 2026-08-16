@@ -237,6 +237,15 @@ def resolve_selected_source_entities(
     entity_reg = er.async_get(hass)
     eligible_entries = get_eligible_device_entities(hass, device_id)
     eligible_by_id = {entry.entity_id: entry for entry in eligible_entries}
+    device_reg = dr.async_get(hass)
+    allowed_device_ids = {device_id}
+    if device_reg.async_is_composite_device_id(device_id) is True:
+        allowed_device_ids = {
+            device.id
+            for device in device_reg.async_get_devices_for_composite_device_id(
+                device_id
+            )
+        }
 
     selected_entries: list[er.RegistryEntry] = []
     for entity_id in entity_ids:
@@ -246,7 +255,7 @@ def resolve_selected_source_entities(
                 "entity_not_found",
                 f"Entity '{entity_id}' was not found.",
             )
-        if reg_entry.device_id != device_id:
+        if reg_entry.device_id not in allowed_device_ids:
             raise RoleManagerError(
                 "entity_wrong_device",
                 f"Entity '{entity_id}' does not belong to device '{device_id}'.",

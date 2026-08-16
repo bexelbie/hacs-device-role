@@ -4,8 +4,10 @@
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 
-from .const import DOMAIN, PLATFORMS
+from .const import CONF_ROLE_NAME, DEVICE_SPLIT_ISSUE, DOMAIN, PLATFORMS
+from .helpers import canonicalize_role_device
 from .services import async_register_services
 from .sensor import AccumulatorStoreManager
 
@@ -20,6 +22,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up a device role from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+    canonicalize_role_device(
+        hass,
+        entry.entry_id,
+        entry.data[CONF_ROLE_NAME],
+        entry.data,
+    )
 
     # Create shared store manager on first entry
     if "store_manager" not in hass.data[DOMAIN]:
@@ -57,6 +65,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Clean up stored data when a config entry is permanently deleted."""
+    ir.async_delete_issue(
+        hass, DOMAIN, f"{DEVICE_SPLIT_ISSUE}_{entry.entry_id}"
+    )
     store_manager = hass.data.get(DOMAIN, {}).get("store_manager")
     if store_manager:
         store_manager.remove_by_entry(entry.entry_id)

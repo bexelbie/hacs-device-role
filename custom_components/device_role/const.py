@@ -2,6 +2,7 @@
 # ABOUTME: Domain name, platform list, storage keys, and default thresholds.
 
 DOMAIN = "device_role"
+DEVICE_SPLIT_ISSUE = "device_split"
 
 PLATFORMS = ["sensor", "binary_sensor", "switch"]
 

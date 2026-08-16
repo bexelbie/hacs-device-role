@@ -244,7 +244,7 @@ Result:
 
 ## Requirements
 
-- Home Assistant 2026.1.0 or later
+- Home Assistant 2026.8.0 or later
 - No external dependencies
 
 ## FAQ
