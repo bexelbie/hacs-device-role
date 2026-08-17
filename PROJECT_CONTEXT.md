@@ -59,6 +59,10 @@ GitHub Release notes are sourced from the tagged commit message.
 Tags containing `-` (e.g. `v0.1.1-beta.1`) are automatically created as
 GitHub pre-releases. HACS only shows stable releases to users by default.
 
+Before tagging or pushing a release, create the local release commit and stop
+so bex can review and amend the public release notes. Continue publishing only
+after bex confirms the amendment is complete.
+
 ### Beta / pre-release flow
 
 ```bash
