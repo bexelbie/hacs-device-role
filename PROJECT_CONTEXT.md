@@ -115,3 +115,13 @@ Pre-release detection is automatic based on `-` in the tag name.
 
 - **Slot-name orphaning on reassignment**: If the new device has different
   entity types, old slot history is orphaned in storage. By design.
+
+## Open Work
+
+The BoardOil `Fleet Projects` board is the source of truth for open work during
+the pilot. Use the `hacs-device-role` Slick. Keep long-form research, design,
+and implementation notes in `working-notes/` and link them from cards.
+
+The fleet `.mrconfig` `fact_next` still reads `#next` from repository loops
+files. With no loops file, this repository cannot expose a fleet NEXT through
+`mr`, even if BoardOil has a card in `Next`.
