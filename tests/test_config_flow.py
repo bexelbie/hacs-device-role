@@ -2,17 +2,12 @@
 # ABOUTME: Covers role creation steps: name, device selection, entity selection, and validation.
 
 import pytest
-from unittest.mock import patch
 
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
-from pytest_homeassistant_custom_component.common import (
-    MockConfigEntry,
-    mock_device_registry,
-    mock_registry,
-)
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.device_role.const import (
     CONF_ACTIVE,

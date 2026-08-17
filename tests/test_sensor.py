@@ -3,7 +3,7 @@
 
 import pytest
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
@@ -135,7 +135,7 @@ async def test_measurement_sensor_mirrors_state(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     # The role sensor should mirror the physical value
-    role_state = hass.states.get(f"sensor.balcony_temperature")
+    role_state = hass.states.get("sensor.balcony_temperature")
     assert role_state is not None
     assert role_state.state == "22.5"
 
@@ -157,7 +157,7 @@ async def test_measurement_sensor_tracks_changes(hass: HomeAssistant) -> None:
     hass.states.async_set(entity_entry.entity_id, "25.3")
     await hass.async_block_till_done()
 
-    role_state = hass.states.get(f"sensor.balcony_temperature")
+    role_state = hass.states.get("sensor.balcony_temperature")
     assert role_state is not None
     assert role_state.state == "25.3"
 
@@ -337,7 +337,7 @@ async def test_measurement_sensor_metadata(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    role_entity_id = f"sensor.balcony_temperature"
+    role_entity_id = "sensor.balcony_temperature"
     role_state = hass.states.get(role_entity_id)
     assert role_state is not None
     assert role_state.attributes.get("state_class") == "measurement"
@@ -364,7 +364,7 @@ async def test_inactive_role_sensor_unavailable(hass: HomeAssistant) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    role_state = hass.states.get(f"sensor.balcony_temperature")
+    role_state = hass.states.get("sensor.balcony_temperature")
     assert role_state is not None
     assert role_state.state == STATE_UNAVAILABLE
 
@@ -418,7 +418,7 @@ async def test_role_creates_device(hass: HomeAssistant) -> None:
 
     # The role entity should be on a role device, not the physical device
     entity_reg = er.async_get(hass)
-    role_reg_entry = entity_reg.async_get(f"sensor.balcony_temperature")
+    role_reg_entry = entity_reg.async_get("sensor.balcony_temperature")
     assert role_reg_entry is not None
     assert role_reg_entry.device_id is not None
 

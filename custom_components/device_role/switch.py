@@ -1,7 +1,6 @@
 # ABOUTME: Switch platform for the device_role integration.
 # ABOUTME: Creates role switch entities that mirror state and forward commands.
 
-import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
@@ -24,12 +23,8 @@ from .const import (
     CONF_ENTITY_MAPPINGS,
     CONF_ROLE_NAME,
     CONF_SLOT,
-    CONF_SOURCE_ENTITY_ID,
-    DOMAIN,
 )
 from .helpers import build_role_device_info, resolve_source_entity_id, resolve_via_device
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -84,9 +79,6 @@ class RoleSwitch(SwitchEntity):
         via_device_id: str | None = None,
     ) -> None:
         """Initialize the role switch."""
-        self._entry = entry
-        self._role_name = role_name
-        self._slot = slot
         self._source_entity_id = source_entity_id
         self._active = active
         self._unsub_listener = None

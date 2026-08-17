@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 
@@ -96,19 +95,6 @@ def make_device_role_entry(
         "discovery_keys": {},
         "subentries": [],
     }
-
-
-def seed_accumulator_state(
-    config_dir: str | Path,
-    accumulators: dict[str, dict],
-) -> None:
-    """Write device_role_accumulators.json with pre-set accumulator state."""
-    write_storage_file(config_dir, "device_role_accumulators.json", {
-        "version": 1,
-        "minor_version": 1,
-        "key": "device_role_accumulators.json",
-        "data": {"accumulators": accumulators},
-    })
 
 
 def discover_fake_device_ids(config_dir: str | Path, entry_id: str) -> dict:

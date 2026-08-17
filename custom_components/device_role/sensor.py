@@ -1,7 +1,6 @@
 # ABOUTME: Sensor platform for the device_role integration.
 # ABOUTME: Creates role sensor entities that mirror measurement and accumulating sensors.
 
-import logging
 import math
 from functools import partial
 
@@ -30,7 +29,6 @@ from .const import (
     CONF_ENTITY_MAPPINGS,
     CONF_ROLE_NAME,
     CONF_SLOT,
-    CONF_SOURCE_ENTITY_ID,
     CONF_STATE_CLASS,
     DOMAIN,
     STORAGE_KEY,
@@ -38,8 +36,6 @@ from .const import (
     STORAGE_VERSION,
 )
 from .helpers import build_role_device_info, resolve_source_entity_id, resolve_via_device
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -162,9 +158,6 @@ class RoleMeasurementSensor(SensorEntity):
         via_device_id: str | None = None,
     ) -> None:
         """Initialize the role measurement sensor."""
-        self._entry = entry
-        self._role_name = role_name
-        self._slot = slot
         self._source_entity_id = source_entity_id
         self._active = active
         self._unsub_listener = None
@@ -372,7 +365,6 @@ class RoleAccumulatingSensor(RestoreSensor):
         """Initialize the role accumulating sensor."""
         super().__init__()
         self._entry = entry
-        self._role_name = role_name
         self._slot = slot
         self._source_entity_id = source_entity_id
         self._active = active
@@ -400,11 +392,6 @@ class RoleAccumulatingSensor(RestoreSensor):
         """Return device info to group role entities under a role device."""
         return self._device_info
 
-    @property
-    def available(self) -> bool:
-        """Accumulating sensors stay available even when inactive (frozen value)."""
-        return True
-
     async def async_added_to_hass(self) -> None:
         """Subscribe to source entity state changes and resume or start session."""
         await super().async_added_to_hass()
@@ -428,14 +415,14 @@ class RoleAccumulatingSensor(RestoreSensor):
                 STATE_UNKNOWN,
             ):
                 self._update_from_current_source()
-                self._apply_pending_restored_floor()
+                self._accumulator.apply_pending_restored_floor()
         elif source_state is not None and source_state.state not in (
             STATE_UNAVAILABLE,
             STATE_UNKNOWN,
         ):
             self._try_start_session()
             if self._session_initialized:
-                self._apply_pending_restored_floor()
+                self._accumulator.apply_pending_restored_floor()
 
         source_state = self.hass.states.get(self._source_entity_id)
         if source_state is None or source_state.state in (
@@ -574,7 +561,7 @@ class RoleAccumulatingSensor(RestoreSensor):
         if not self._session_initialized:
             self._try_start_session()
             if self._session_initialized:
-                self._apply_pending_restored_floor()
+                self._accumulator.apply_pending_restored_floor()
                 self._attr_native_value = self._accumulator.role_value
                 self.async_write_ha_state()
             return
@@ -590,15 +577,10 @@ class RoleAccumulatingSensor(RestoreSensor):
             return
 
         self._accumulator.update(reading)
-        self._apply_pending_restored_floor()
+        self._accumulator.apply_pending_restored_floor()
         self._attr_native_value = self._accumulator.role_value
         self._store_manager.schedule_save()
         self.async_write_ha_state()
-
-    @callback
-    def _apply_pending_restored_floor(self) -> None:
-        """Apply the queued restore floor once the session has reconciled to a real reading."""
-        self._accumulator.apply_pending_restored_floor()
 
     @callback
     def _try_start_session(self) -> None:

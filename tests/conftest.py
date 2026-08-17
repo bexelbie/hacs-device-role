@@ -8,6 +8,8 @@ import pytest
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.device_role.const import DOMAIN
+
 # Make fake_device available to HA's integration loader during tests.
 # It lives in tests/fixtures/ to keep custom_components/ HACS-clean.
 # Must happen before module collection so imports resolve.
@@ -16,8 +18,6 @@ _FAKE_DEVICE_DST = Path(__file__).parents[1] / "custom_components" / "fake_devic
 
 if not _FAKE_DEVICE_DST.exists():
     os.symlink(_FAKE_DEVICE_SRC.resolve(), _FAKE_DEVICE_DST)
-
-from custom_components.device_role.const import DOMAIN
 
 
 @pytest.fixture

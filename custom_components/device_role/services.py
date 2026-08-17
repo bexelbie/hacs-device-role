@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import inspect
-
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
@@ -21,7 +19,6 @@ from .role_manager import (
     commit_entry_accumulators,
     create_device_role_entry,
     get_device_role_entry,
-    get_device_role_entries,
     serialize_role,
     validate_reassignment_units,
     validate_role_name,
@@ -40,10 +37,6 @@ ROLE_ASSIGNMENT_SCHEMA = vol.Schema(
         vol.Required("entity_id"): cv.entity_id,
     }
 )
-_ADMIN_SERVICE_SUPPORTS_RESPONSE = (
-    "supports_response" in inspect.signature(async_register_admin_service).parameters
-)
-
 
 def _raise_service_error(err: RoleManagerError) -> None:
     """Translate a role-manager error into a service validation error."""
@@ -62,12 +55,10 @@ def _async_register_device_role_service(
     schema: vol.Schema | None = None,
     supports_response: SupportsResponse = SupportsResponse.NONE,
 ) -> None:
-    """Register an admin service while tolerating older helper signatures."""
-    register_kwargs: dict[str, object] = {}
+    """Register a device_role admin service."""
+    register_kwargs: dict[str, object] = {"supports_response": supports_response}
     if schema is not None:
         register_kwargs["schema"] = schema
-    if _ADMIN_SERVICE_SUPPORTS_RESPONSE:
-        register_kwargs["supports_response"] = supports_response
 
     async_register_admin_service(
         hass,
@@ -83,7 +74,7 @@ async def _async_handle_list_roles(call: ServiceCall) -> dict[str, object]:
     return {
         "roles": [
             serialize_role(call.hass, entry)
-            for entry in get_device_role_entries(call.hass)
+            for entry in call.hass.config_entries.async_entries(DOMAIN)
         ]
     }
 

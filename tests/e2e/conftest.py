@@ -19,7 +19,6 @@ from .seed import (
     make_device_role_entry,
     make_fake_device_entry,
     read_storage_file,
-    seed_accumulator_state,
     seed_config_entries,
 )
 

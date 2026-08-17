@@ -41,13 +41,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements_e2e.txt
 
-      - name: Pull HA Docker image
-        run: docker pull "$HA_E2E_IMAGE"
-
       - name: Run E2E tests
-        run: |
-          chmod +x scripts/run-e2e.sh
-          scripts/run-e2e.sh
+        run: scripts/run-e2e.sh
 
       - name: Dump HA container logs on failure
         if: failure()

@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import inspect
-
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 
@@ -28,9 +26,6 @@ from .const import (
 )
 
 SUPPORTED_DOMAINS = set(PLATFORMS)
-_CONFIG_ENTRY_SUPPORTS_SUBENTRIES = (
-    "subentries_data" in inspect.signature(ConfigEntry).parameters
-)
 
 
 class RoleManagerError(Exception):
@@ -50,11 +45,6 @@ def describe_registry_entry(entry: er.RegistryEntry) -> str:
         f" ({entry.domain}"
         f"{', ' + entry.original_device_class if entry.original_device_class else ''})"
     )
-
-
-def get_device_role_entries(hass: HomeAssistant) -> list[ConfigEntry]:
-    """Return all device_role config entries."""
-    return hass.config_entries.async_entries(DOMAIN)
 
 
 def get_device_role_entry(
@@ -100,9 +90,8 @@ def create_device_role_entry(
         "source": SOURCE_USER,
         "unique_id": None,
         "discovery_keys": MappingProxyType({}),
+        "subentries_data": (),
     }
-    if _CONFIG_ENTRY_SUPPORTS_SUBENTRIES:
-        entry_kwargs["subentries_data"] = ()
     return ConfigEntry(**entry_kwargs)
 
 
@@ -115,7 +104,7 @@ def validate_role_name(
     """Reject duplicate role names."""
     existing_names = {
         entry.data.get(CONF_ROLE_NAME, entry.title)
-        for entry in get_device_role_entries(hass)
+        for entry in hass.config_entries.async_entries(DOMAIN)
         if entry.entry_id != exclude_entry_id
     }
     if role_name in existing_names:
@@ -198,7 +187,7 @@ def get_claimed_source_unique_ids(
 ) -> set[str]:
     """Return all source unique IDs claimed by active roles."""
     claimed: set[str] = set()
-    for entry in get_device_role_entries(hass):
+    for entry in hass.config_entries.async_entries(DOMAIN):
         if entry.entry_id == exclude_entry_id:
             continue
         if not entry.data.get(CONF_ACTIVE, False):

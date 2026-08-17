@@ -183,15 +183,6 @@ class HAClient:
         resp.raise_for_status()
         return resp.json()
 
-    def get_states(self) -> list[dict]:
-        """Get all entity states."""
-        resp = self._session.get(
-            f"{self._base_url}/api/states",
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
-
     def call_service(
         self, domain: str, service: str, data: dict | None = None
     ) -> None:

@@ -1,8 +1,6 @@
 # ABOUTME: Tests for the session accumulator logic.
 # ABOUTME: Covers delta tracking, session commit/resume, reset detection, and persistence.
 
-import pytest
-
 from custom_components.device_role.accumulator import SessionAccumulator
 from custom_components.device_role.const import STORAGE_SAVE_INTERVAL
 from custom_components.device_role.sensor import AccumulatorStoreManager

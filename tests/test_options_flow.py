@@ -518,7 +518,7 @@ async def test_options_flow_reassign_ambiguous_mapping_requires_explicit_assignm
         identifiers={("test", "ambiguous_b")},
         name="Ambient B",
     )
-    temp_b_1 = entity_reg.async_get_or_create(
+    entity_reg.async_get_or_create(
         "sensor",
         "test",
         "ambiguous_b_temp_1",
@@ -527,7 +527,7 @@ async def test_options_flow_reassign_ambiguous_mapping_requires_explicit_assignm
         original_device_class=SensorDeviceClass.TEMPERATURE,
         original_name="Temperature 1",
     )
-    temp_b_2 = entity_reg.async_get_or_create(
+    entity_reg.async_get_or_create(
         "sensor",
         "test",
         "ambiguous_b_temp_2",

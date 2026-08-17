@@ -23,7 +23,6 @@ def _backup_storage_snapshot(config_dir: Path, names: tuple[str, ...]) -> dict[s
     storage_dir.mkdir(exist_ok=True)
 
     for name in names:
-        source = storage_dir / name
         snapshot[name] = read_storage_file(config_dir, name)
     return snapshot
 
