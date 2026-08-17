@@ -2,7 +2,11 @@
 # ABOUTME: Creates role sensor entities that mirror measurement and accumulating sensors.
 
 import logging
+import math
+from functools import partial
 
+from homeassistant.components import recorder
+from homeassistant.components.recorder import history
 from homeassistant.components.sensor import (
     RestoreSensor,
     SensorDeviceClass,
@@ -404,15 +408,18 @@ class RoleAccumulatingSensor(RestoreSensor):
     async def async_added_to_hass(self) -> None:
         """Subscribe to source entity state changes and resume or start session."""
         await super().async_added_to_hass()
+
+        restored_floor = await self._async_get_restored_floor()
+        recorder_floor = await self._async_get_recorder_floor()
+        effective_floor = self._effective_floor(restored_floor, recorder_floor)
+        if effective_floor is not None:
+            self._accumulator.queue_restored_floor(effective_floor)
+
         if not self._active:
             self._attr_native_value = self._accumulator.role_value
             return
 
         source_state = self.hass.states.get(self._source_entity_id)
-        restored_floor = await self._async_get_restored_floor()
-
-        if restored_floor is not None:
-            self._accumulator.queue_restored_floor(restored_floor)
 
         if self._accumulator.session_active:
             self._session_initialized = True
@@ -456,18 +463,98 @@ class RoleAccumulatingSensor(RestoreSensor):
             self._accumulator.commit_session()
         self._store_manager.schedule_save()
 
+    @staticmethod
+    def _coerce_floor_value(
+        value: object,
+        *,
+        expected_unit: str | None = None,
+        source_unit: str | None = None,
+    ) -> float | None:
+        """Validate and normalize a floor candidate before using it."""
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        if not math.isfinite(parsed) or parsed < 0:
+            return None
+
+        if expected_unit and source_unit and source_unit != expected_unit:
+            return None
+
+        return parsed
+
+    def _effective_floor(
+        self, restored_floor: float | None, recorder_floor: float | None
+    ) -> float | None:
+        """Pick the maximum trusted floor value for the accumulator."""
+        trusted_values: list[float] = []
+
+        if (role_value := self._accumulator.role_value) is not None:
+            try:
+                role_value = float(role_value)
+            except (TypeError, ValueError):
+                role_value = None
+            else:
+                if math.isfinite(role_value) and role_value >= 0:
+                    trusted_values.append(role_value)
+
+        for floor in (restored_floor, recorder_floor):
+            if floor is not None:
+                trusted_values.append(float(floor))
+
+        if not trusted_values:
+            return None
+
+        return max(trusted_values)
+
     async def _async_get_restored_floor(self) -> float | None:
         """Read the last role value from core.restore_state as a lower bound."""
         restored_data = await self.async_get_last_sensor_data()
         if restored_data is None or restored_data.native_value is None:
             return None
+
+        expected_unit = self._accumulator.unit or self._attr_native_unit_of_measurement
+        source_unit = restored_data.native_unit_of_measurement or None
+        return self._coerce_floor_value(
+            restored_data.native_value,
+            expected_unit=expected_unit,
+            source_unit=source_unit,
+        )
+
+    async def _async_get_recorder_floor(self) -> float | None:
+        """Read the last raw role state from recorder history as a lower bound."""
+        if self.hass is None or self.entity_id is None:
+            return None
+
         try:
-            restored_floor = float(restored_data.native_value)
-        except (TypeError, ValueError):
+            instance = recorder.get_instance(self.hass)
+        except KeyError:
             return None
-        if restored_floor == float("inf") or restored_floor == float("-inf"):
+
+        if instance is None:
             return None
-        return restored_floor
+
+        if not await instance.async_db_ready:
+            return None
+
+        states_by_entity = await instance.async_add_executor_job(
+            partial(history.get_last_state_changes, self.hass, 1, self.entity_id)
+        )
+        last_states = states_by_entity.get(self.entity_id) or states_by_entity.get(
+            self.entity_id.lower()
+        )
+        if not last_states:
+            return None
+
+        last_state = last_states[-1]
+        expected_unit = self._accumulator.unit or self._attr_native_unit_of_measurement
+        source_unit = last_state.attributes.get("unit_of_measurement") or None
+        return self._coerce_floor_value(
+            last_state.state,
+            expected_unit=expected_unit,
+            source_unit=source_unit,
+        )
 
     @callback
     def _handle_source_change(

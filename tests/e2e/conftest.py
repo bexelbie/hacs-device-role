@@ -98,9 +98,13 @@ def _start_container(config_dir: Path) -> None:
     )
 
 
-def _restart_container() -> None:
-    """Stop and start the existing container (preserves .storage/)."""
-    _docker("stop", CONTAINER_NAME)
+def _restart_container(signal: str = "stop") -> None:
+    """Stop and start the existing container (preserves .storage/).
+
+    signal="stop" is a graceful SIGTERM. signal="kill" is SIGKILL: no shutdown
+    handlers, no final write, nothing flushed on the way out.
+    """
+    _docker(signal, CONTAINER_NAME)
     _docker("start", CONTAINER_NAME)
 
 
@@ -137,8 +141,8 @@ def config_dir():
     if not fake_dest.exists():
         shutil.copytree(FAKE_DEVICE_FIXTURE, fake_dest)
 
-    # Minimal configuration.yaml
-    (config_path / "configuration.yaml").write_text("homeassistant:\n")
+    # Minimal configuration.yaml with recorder enabled for the upgrade-gap proof.
+    (config_path / "configuration.yaml").write_text("homeassistant:\nrecorder:\n")
 
     yield config_path
 
@@ -260,8 +264,8 @@ def restart_ha():
     fake_device.set_value service to be registered so tests can call it
     immediately without a startup race.
     """
-    def _restart():
-        _restart_container()
+    def _restart(signal: str = "stop"):
+        _restart_container(signal)
         client = HAClient(HA_URL)
         try:
             client.wait_for_ready(timeout=120)
