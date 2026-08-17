@@ -25,6 +25,8 @@ class SessionAccumulator:
         self._last_physical: float | None = None
         self._session_active: bool = False
         self._unit: str | None = None
+        self._restored_floor_applied: bool = False
+        self._pending_restored_floor: float | None = None
         # When session starts with zero, defer start until first real reading
         self._awaiting_stable_start: bool = False
 
@@ -116,11 +118,31 @@ class SessionAccumulator:
         """Commit the current session's delta to the historical sum."""
         if not self._session_active:
             return
+        self.apply_pending_restored_floor()
         self._commit_current_delta()
         self._session_active = False
         self._session_start = None
         self._last_physical = None
         self._awaiting_stable_start = False
+
+    def queue_restored_floor(self, restored_floor: float | None) -> None:
+        """Store a restored floor until the active session has reconciled or is committed."""
+        if restored_floor is None or self._restored_floor_applied:
+            return
+
+        if self._session_active:
+            self._pending_restored_floor = float(restored_floor)
+            return
+
+        self.apply_restored_floor(restored_floor)
+
+    def apply_pending_restored_floor(self) -> None:
+        """Apply a queued restored floor exactly once when the session is ready."""
+        if self._pending_restored_floor is None:
+            return
+
+        self.apply_restored_floor(self._pending_restored_floor)
+        self._pending_restored_floor = None
 
     def _commit_current_delta(self) -> None:
         """Add the current session's delta to the historical sum."""
@@ -150,3 +172,15 @@ class SessionAccumulator:
         acc._awaiting_stable_start = data.get("awaiting_stable_start", False)
         acc._unit = data.get("unit")
         return acc
+
+    def apply_restored_floor(self, restored_floor: float | None) -> None:
+        """Treat a restored role value as a lower bound for the running accumulator."""
+        if restored_floor is None or self._restored_floor_applied:
+            return
+
+        candidate_role_value = self.role_value
+        delta = max(0.0, float(restored_floor) - float(candidate_role_value))
+        if delta:
+            self._historical_sum += delta
+
+        self._restored_floor_applied = True

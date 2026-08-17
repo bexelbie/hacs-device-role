@@ -4,8 +4,13 @@
 import pytest
 import attr
 
-from homeassistant.const import EVENT_HOMEASSISTANT_STOP, MAJOR_VERSION, MINOR_VERSION
-from homeassistant.core import HomeAssistant
+from homeassistant.const import (
+    EVENT_HOMEASSISTANT_FINAL_WRITE,
+    EVENT_HOMEASSISTANT_STOP,
+    MAJOR_VERSION,
+    MINOR_VERSION,
+)
+from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -24,6 +29,7 @@ from custom_components.device_role.const import (
     DEVICE_SPLIT_ISSUE,
     DOMAIN,
 )
+from custom_components.device_role.sensor import AccumulatorStoreManager
 from homeassistant.helpers import issue_registry as ir
 
 
@@ -425,6 +431,30 @@ async def test_shared_store_manager_created(
     await hass.async_block_till_done()
 
     assert "store_manager" in hass.data[DOMAIN]
+
+
+@pytest.mark.usefixtures("enable_custom_integrations")
+async def test_final_write_persists_current_payload(hass: HomeAssistant) -> None:
+    """A final-write shutdown persists the latest accumulator payload to disk."""
+    store_manager = AccumulatorStoreManager(hass)
+    acc = store_manager.get_or_create("entry_slot")
+    acc.start_session(100.0, "kWh")
+    acc.update(110.0)
+
+    store_manager.schedule_save()
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_STOP)
+    hass.set_state(CoreState.stopping)
+    await hass.async_block_till_done()
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
+    await hass.async_block_till_done()
+
+    stored = await store_manager._store.async_load()
+    assert stored is not None
+    payload = stored["accumulators"]["entry_slot"]
+    assert payload["session_active"] is True
+    assert payload["last_physical"] == 110.0
+    assert payload["session_start"] == 100.0
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")

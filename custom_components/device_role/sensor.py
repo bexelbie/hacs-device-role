@@ -4,6 +4,7 @@
 import logging
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -281,6 +282,7 @@ class AccumulatorStoreManager:
         self._store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}.json")
         self._accumulators: dict[str, SessionAccumulator] = {}
         self._loaded = False
+        self._save_scheduled = False
 
     async def async_load(self) -> None:
         """Load accumulator state from persistent storage."""
@@ -319,15 +321,20 @@ class AccumulatorStoreManager:
             del self._accumulators[key]
 
     def schedule_save(self) -> None:
-        """Schedule a delayed save of all accumulator state."""
+        """Schedule a single delayed save of all accumulator state."""
+        if self._save_scheduled:
+            return
+        self._save_scheduled = True
         self._store.async_delay_save(self._data_to_save, STORAGE_SAVE_INTERVAL)
 
     async def async_save_now(self) -> None:
         """Immediately save all accumulator state."""
+        self._save_scheduled = False
         await self._store.async_save(self._data_to_save())
 
     def _data_to_save(self) -> dict:
         """Build the data structure for persistent storage."""
+        self._save_scheduled = False
         return {
             "accumulators": {
                 key: acc.to_dict()
@@ -335,7 +342,8 @@ class AccumulatorStoreManager:
             }
         }
 
-class RoleAccumulatingSensor(SensorEntity):
+
+class RoleAccumulatingSensor(RestoreSensor):
     """A role sensor backed by a session accumulator for total_increasing sources."""
 
     _attr_should_poll = False
@@ -358,6 +366,7 @@ class RoleAccumulatingSensor(SensorEntity):
         via_device_id: str | None = None,
     ) -> None:
         """Initialize the role accumulating sensor."""
+        super().__init__()
         self._entry = entry
         self._role_name = role_name
         self._slot = slot
@@ -371,7 +380,7 @@ class RoleAccumulatingSensor(SensorEntity):
 
         self._attr_unique_id = f"{entry.entry_id}_{slot}"
         self._attr_name = source_name or slot.replace("_", " ").title()
-        self._attr_native_value = accumulator.role_value
+        self._attr_native_value = accumulator.role_value if not active else None
 
         # Copy device_class and unit from source
         if device_class_str:
@@ -394,14 +403,41 @@ class RoleAccumulatingSensor(SensorEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to source entity state changes and resume or start session."""
+        await super().async_added_to_hass()
         if not self._active:
+            self._attr_native_value = self._accumulator.role_value
             return
+
+        source_state = self.hass.states.get(self._source_entity_id)
+        restored_floor = await self._async_get_restored_floor()
+
+        if restored_floor is not None:
+            self._accumulator.queue_restored_floor(restored_floor)
 
         if self._accumulator.session_active:
             self._session_initialized = True
-            self._update_from_current_source()
-        else:
+            if source_state is not None and source_state.state not in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ):
+                self._update_from_current_source()
+                self._apply_pending_restored_floor()
+        elif source_state is not None and source_state.state not in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+        ):
             self._try_start_session()
+            if self._session_initialized:
+                self._apply_pending_restored_floor()
+
+        source_state = self.hass.states.get(self._source_entity_id)
+        if source_state is None or source_state.state in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+        ):
+            self._attr_native_value = None
+        else:
+            self._attr_native_value = self._accumulator.role_value
 
         self._unsub_listener = async_track_state_change_event(
             self.hass, [self._source_entity_id], self._handle_source_change
@@ -420,22 +456,40 @@ class RoleAccumulatingSensor(SensorEntity):
             self._accumulator.commit_session()
         self._store_manager.schedule_save()
 
+    async def _async_get_restored_floor(self) -> float | None:
+        """Read the last role value from core.restore_state as a lower bound."""
+        restored_data = await self.async_get_last_sensor_data()
+        if restored_data is None or restored_data.native_value is None:
+            return None
+        try:
+            restored_floor = float(restored_data.native_value)
+        except (TypeError, ValueError):
+            return None
+        if restored_floor == float("inf") or restored_floor == float("-inf"):
+            return None
+        return restored_floor
+
     @callback
     def _handle_source_change(
         self, event: Event[EventStateChangedData]
     ) -> None:
         """Handle source entity state changes."""
-        if not self._session_initialized:
-            self._try_start_session()
-            if self._session_initialized:
-                self._attr_native_value = self._accumulator.role_value
+        source_state = self.hass.states.get(self._source_entity_id)
+        if source_state is None or source_state.state in (
+            STATE_UNAVAILABLE,
+            STATE_UNKNOWN,
+        ):
+            if not self._session_initialized:
+                self._attr_native_value = None
                 self.async_write_ha_state()
             return
 
-        source_state = self.hass.states.get(self._source_entity_id)
-        if source_state is None or source_state.state in (
-            STATE_UNAVAILABLE, STATE_UNKNOWN,
-        ):
+        if not self._session_initialized:
+            self._try_start_session()
+            if self._session_initialized:
+                self._apply_pending_restored_floor()
+                self._attr_native_value = self._accumulator.role_value
+                self.async_write_ha_state()
             return
 
         try:
@@ -449,9 +503,15 @@ class RoleAccumulatingSensor(SensorEntity):
             return
 
         self._accumulator.update(reading)
+        self._apply_pending_restored_floor()
         self._attr_native_value = self._accumulator.role_value
         self._store_manager.schedule_save()
         self.async_write_ha_state()
+
+    @callback
+    def _apply_pending_restored_floor(self) -> None:
+        """Apply the queued restore floor once the session has reconciled to a real reading."""
+        self._accumulator.apply_pending_restored_floor()
 
     @callback
     def _try_start_session(self) -> None:

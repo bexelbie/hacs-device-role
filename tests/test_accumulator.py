@@ -4,6 +4,8 @@
 import pytest
 
 from custom_components.device_role.accumulator import SessionAccumulator
+from custom_components.device_role.const import STORAGE_SAVE_INTERVAL
+from custom_components.device_role.sensor import AccumulatorStoreManager
 
 
 class TestSessionAccumulator:
@@ -192,3 +194,37 @@ class TestSessionAccumulator:
 
         acc.start_session(physical_reading=10.0, unit="m³")
         assert acc.unit == "m³"
+
+    def test_floor_is_lower_bound_not_additive_delta(self) -> None:
+        """A restored prior value floors the accumulator without double-counting."""
+        acc = SessionAccumulator()
+        acc.start_session(physical_reading=100.0, unit="kWh")
+        acc.update(110.0)
+        acc.commit_session()
+        assert acc.role_value == 10.0
+
+        acc.apply_restored_floor(25.0)
+        assert acc.role_value == 25.0
+        acc.apply_restored_floor(30.0)
+        assert acc.role_value == 25.0
+
+        acc.start_session(physical_reading=200.0, unit="kWh")
+        acc.update(210.0)
+        assert acc.role_value == 35.0
+
+    def test_store_manager_schedules_one_outstanding_flush(self, hass) -> None:
+        """Continuous dirty updates keep a single bounded save window active."""
+        store_manager = AccumulatorStoreManager(hass)
+        calls: list[tuple[float, dict]] = []
+
+        def fake_delay_save(data_func, delay):
+            calls.append((delay, data_func))
+
+        store_manager._store.async_delay_save = fake_delay_save
+
+        store_manager.schedule_save()
+        store_manager.schedule_save()
+        store_manager.schedule_save()
+
+        assert len(calls) == 1
+        assert calls[0][0] == STORAGE_SAVE_INTERVAL
