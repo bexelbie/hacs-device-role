@@ -68,6 +68,11 @@ Accumulating sensors (any sensor with `state_class: total_increasing`) are the o
 
 ### HACS (recommended)
 
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bexelbie&repository=hacs-device-role&category=Integration)
+
+If the above link does not work you can add this integration to HACS manually.
+
 1. In Home Assistant, open **HACS**.
 2. Three-dot menu → **Custom repositories**.
 3. Add `https://github.com/bexelbie/hacs-device-role` with category **Integration**.
